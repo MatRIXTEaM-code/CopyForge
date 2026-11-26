@@ -1,0 +1,1008 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Sockets;
+using System.Runtime.CompilerServices;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using CopyForge.Engine;
+using CopyForge.Engine.Net;
+
+namespace CopyForge.Cli;
+
+internal static class Program
+{
+	private const string Usage = "\ncfcopy - CopyForge command line\n\n  cfcopy copy   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy move   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy sync   SOURCE_FOLDER      --to DEST [options]   (mirror: deletes extra files in DEST; needs --yes)\n  cfcopy delete SOURCE [SOURCE...] [options]             (needs --yes)\n  cfcopy watch  SOURCE [SOURCE...] --to DEST [options]   (keep DEST in step until Ctrl+C; re-syncs when the stick/share returns)\n  cfcopy receive FOLDER [--listen ADDR] [--port 9333] [--psk-file F]   (accept files from another PC into FOLDER; prints the fingerprint)\n  cfcopy send   SOURCE [SOURCE...] --to HOST[:PORT] --fingerprint HEX [--psk-file F]   (push files to a receiving PC)\n  cfcopy audit  FOLDER [--pin KEYID] [--extra]           (re-hash every file against cfmanifest.json; exit 1 if anything differs)\n  cfcopy compare SOURCE_FOLDER --to DEST                 (list what differs; changes nothing; exit 1 if they differ)\n  cfcopy run    JOBFILE                                  (run the commands in a text file one after another; # = comment)\n  cfcopy bench  [--from DIR] --to DIR [--size-mb 1024]   (speed test of the copy strategies on your drives)\n  cfcopy fakecheck FOLDER [--size-mb N]                  (fake-capacity drive test: fills the free space on the drive holding FOLDER with checkable data, reads it back, deletes it; N limits how many MB to test)\n  cfcopy history [N] [--search TEXT] [--clear --yes]     (list the last N jobs, default 20; --clear erases the history)\n\nOptions\n  --verify                 re-read and compare every file (bypasses the Windows cache)\n  --verify-algo ALGO       xxh3 (default, fast) | xxh128 | sha256 ; implies --verify\n  --no-clone               do not use ReFS block cloning for same-volume copies\n  --eject                  safely eject a removable destination when the job finishes without errors\n  --safe-names             USB sticks: keep the temp name + rename for every file (slower, no partial file under the real name)\n  --overwrite MODE         different (default) | newer | always | never\n  --include \"a;b\"          wildcard include list        --exclude \"a;b/\"   wildcard exclude list (trailing / = folders)\n  --min-mb N  --max-mb N   size limits                  --days N          only files modified in the last N days\n  --threads N              files in parallel (0 = auto)  --buffer MB       block size 1-64 (default 4)\n  --io MODE                auto (default) | buffered | direct\n  --method MODE            auto (default) | pipeline | native\n  --chunks N               workers per big file, 0 = auto\n  --retries N              extra attempts per file (default 3)\n  --wait SECONDS           how long to wait for an unplugged destination to return (default 120)\n  --acl                    copy NTFS permissions and alternate data streams\n  --split                  FAT32 destination: write files over 4 GB as .001/.002 parts\n  --no-flush               do not force data to disk before finishing each file\n  --no-dirtimes            do not copy folder timestamps\n  --recycle                delete: send to the Recycle Bin (Windows)\n  --usn                    EXPERIMENTAL (Windows, NTFS, run as administrator): copy only what the NTFS change journal says changed\n  --full-scan              with --usn: force a full folder walk this time\n  --autotune               adjust the number of parallel files live while copying (with --threads 0)\n  --delta                  big files that already exist in DEST: rewrite only the blocks that changed\n  --delta-min-mb N         delta applies to files at least N MB (default 32)\n  --dry-run                preview only: show what would be copied/deleted, change nothing\n  --vss                    read files that another program holds open from a Volume Shadow Copy (Windows, administrator)\n  --also DEST              copy to a second destination too, afterwards (repeatable; the source is read again from cache)\n  --manifest               write cfmanifest.json (SHA-256 of every file) into DEST after the job\n  --sign KEYFILE           sign the manifest with an ECDSA key (created if missing); implies --manifest\n  --pin KEYID              audit: require the manifest to be signed by this key id\n  --extra                  audit: also list files that are not in the manifest\n  --quiet-secs N           watch: wait N seconds after the last change before syncing (default 5)\n  --mirror                 watch: also delete from DEST what was deleted from SOURCE (needs --yes)\n  --listen ADDR            receive: address to listen on (default 127.0.0.1 = this PC only; use 0.0.0.0 for the LAN)\n  --port N                 receive: TCP port (default 9333)\n  --psk-file FILE          receive/send: the shared secret file (created by 'receive' if missing; copy it to the sender by hand)\n  --fingerprint HEX        send: the receiver's certificate fingerprint, as printed by 'receive'\n  --yes                    confirm destructive modes (sync, delete)\n  --quiet                  no progress output\n\nExit codes: 0 ok, 1 finished with errors, 2 bad usage, 3 cancelled (Ctrl+C)\n";
+
+	private static readonly CancellationTokenSource Ctl = new CancellationTokenSource();
+
+	private static string AgentDir => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CopyForge", "agent");
+
+	private static async Task<int> Receive(string folder, string listen, int port, string pskFile)
+	{
+		if (pskFile.Length == 0)
+		{
+			pskFile = Path.Combine(AgentDir, "psk.txt");
+		}
+		bool num = !File.Exists(pskFile);
+		byte[] psk = Wire.LoadOrCreatePsk(pskFile);
+		if (!IPAddress.TryParse(listen, out IPAddress address))
+		{
+			throw new ArgumentException("bad --listen address");
+		}
+		AgentServer agentServer = new AgentServer(folder, psk, address, port, Path.Combine(AgentDir, "cert.pfx"));
+		agentServer.Log += delegate(string m)
+		{
+			Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] {m}");
+		};
+		if (num)
+		{
+			Console.WriteLine("Created a new shared secret: " + pskFile + "\nCopy this file to the sending PC (USB stick, not email) and pass it with --psk-file.");
+		}
+		if (!address.Equals(IPAddress.Loopback))
+		{
+			Console.WriteLine("NOTE: listening beyond this PC. Only machines holding the secret file AND the fingerprint below can send; allow the port in your firewall only for trusted networks.");
+		}
+		Console.WriteLine("Sender command:  cfcopy send <files> --to <this-pc>:" + port + " --fingerprint " + agentServer.Fingerprint + " --psk-file <secret file>");
+		try
+		{
+			await agentServer.RunAsync(Ctl.Token);
+		}
+		catch (SocketException ex)
+		{
+			Console.Error.WriteLine("cfcopy: cannot listen: " + ((Exception)(object)ex).Message);
+			return 1;
+		}
+		return 0;
+	}
+
+	private static async Task<int> Send(List<string> sources, string to, int defaultPort, string pskFile, string fingerprint)
+	{
+		if (pskFile.Length == 0)
+		{
+			pskFile = Path.Combine(AgentDir, "psk.txt");
+		}
+		if (!File.Exists(pskFile))
+		{
+			Console.Error.WriteLine("cfcopy: secret file not found: " + pskFile);
+			return 2;
+		}
+		byte[] psk = Wire.LoadOrCreatePsk(pskFile);
+		string host = to;
+		int port = defaultPort;
+		int num = to.LastIndexOf(':');
+		if (num > 0)
+		{
+			int num2 = num + 1;
+			if (int.TryParse(to.Substring(num2, to.Length - num2), out var result))
+			{
+				host = to.Substring(0, num);
+				port = result;
+			}
+		}
+		try
+		{
+			SendResult sendResult = await AgentClient.SendAsync(host, port, psk, fingerprint, sources, delegate(string m)
+			{
+				Console.WriteLine(m);
+			}, Ctl.Token);
+			Console.WriteLine($"Sent {sendResult.Sent:N0} of {sendResult.Files:N0} files ({Fmt(sendResult.Bytes)}); {sendResult.Failed:N0} failed.");
+			foreach (string item in sendResult.Errors.Take(20))
+			{
+				Console.Error.WriteLine("  ERROR: " + item);
+			}
+			return (sendResult.Failed > 0) ? 1 : 0;
+		}
+		catch (OperationCanceledException)
+		{
+			Console.Error.WriteLine("cancelled");
+			return 3;
+		}
+		catch (Exception ex2)
+		{
+			Console.Error.WriteLine("cfcopy: " + ex2.Message);
+			return 1;
+		}
+	}
+
+	private static async Task<int> Watch(JobOptions o, int quietSecs, bool quiet)
+	{
+		o.EjectAfter = false;
+		Watcher watcher = new Watcher(o, TimeSpan.FromSeconds((double)Math.Clamp(quietSecs, 1, 3600)));
+		watcher.Event += delegate(WatchEvent e)
+		{
+			if (!(e.Kind == "log" && quiet))
+			{
+				DefaultInterpolatedStringHandler defaultInterpolatedStringHandler = new DefaultInterpolatedStringHandler(3, 3);
+				defaultInterpolatedStringHandler.AppendLiteral("[");
+				defaultInterpolatedStringHandler.AppendFormatted(DateTime.Now, "HH:mm:ss");
+				defaultInterpolatedStringHandler.AppendLiteral("] ");
+				string kind = e.Kind;
+				bool flag = ((kind == "warn" || kind == "error") ? true : false);
+				defaultInterpolatedStringHandler.AppendFormatted(flag ? (e.Kind.ToUpperInvariant() + ": ") : "");
+				defaultInterpolatedStringHandler.AppendFormatted(e.Text);
+				Console.WriteLine(defaultInterpolatedStringHandler.ToStringAndClear());
+			}
+		};
+		try
+		{
+			await watcher.RunAsync(Ctl.Token);
+		}
+		catch (Exception ex)
+		{
+			Console.Error.WriteLine("cfcopy: " + ex.Message);
+			return 1;
+		}
+		return 0;
+	}
+
+	private static async Task<int> Audit(string folder, int threads, bool extra, string? pin, bool quiet)
+	{
+		if (!Directory.Exists(folder))
+		{
+			Console.Error.WriteLine("cfcopy: folder not found: " + folder);
+			return 2;
+		}
+		if (threads <= 0)
+		{
+			threads = Math.Clamp(Environment.ProcessorCount / 2, 2, 8);
+		}
+		int last = -1;
+		Progress<(int, int)> progress = (quiet ? null : new Progress<(int, int)>(delegate((int done, int total) p)
+		{
+			int num = ((p.total == 0) ? 100 : (p.done * 100 / p.total));
+			if (num != last)
+			{
+				last = num;
+				Console.Write($"\rAuditing... {num,3}% ({p.done:N0}/{p.total:N0})");
+			}
+		}));
+		AuditResult auditResult;
+		try
+		{
+			auditResult = await Manifest.AuditAsync(folder, threads, extra, pin, progress, Ctl.Token);
+		}
+		catch (OperationCanceledException)
+		{
+			Console.WriteLine();
+			Console.Error.WriteLine("cancelled");
+			return 3;
+		}
+		if (!quiet)
+		{
+			Console.WriteLine();
+		}
+		if (!auditResult.ManifestFound)
+		{
+			Console.Error.WriteLine("No readable cfmanifest.json in " + folder + ". Copy with --manifest first.");
+			return 2;
+		}
+		Console.WriteLine($"Checked {auditResult.Checked:N0} files: {auditResult.Ok:N0} OK, {auditResult.Changed.Count:N0} changed, {auditResult.Missing.Count:N0} missing.");
+		Console.WriteLine("Signature: " + auditResult.Signature + ((auditResult.KeyFingerprint != null) ? (" (key id " + auditResult.KeyFingerprint + ")") : ""));
+		if (auditResult.Signature == "valid" && string.IsNullOrWhiteSpace(pin))
+		{
+			Console.WriteLine("  Note: the signature matches the key stored beside the manifest, but that key is not pinned, so it only proves the file was not edited by accident. Use --pin <key id> to prove who signed it.");
+		}
+		foreach (string item in auditResult.Changed)
+		{
+			Console.WriteLine("  CHANGED  " + item);
+		}
+		foreach (string item2 in auditResult.Missing)
+		{
+			Console.WriteLine("  MISSING  " + item2);
+		}
+		foreach (string item3 in auditResult.Unlisted)
+		{
+			Console.WriteLine("  EXTRA    " + item3);
+		}
+		Console.WriteLine(auditResult.Clean ? "RESULT: clean." : "RESULT: PROBLEMS FOUND.");
+		return (!auditResult.Clean) ? 1 : 0;
+	}
+
+	private static async Task<int> Main(string[] args)
+	{
+		Console.CancelKeyPress += delegate(object? _, ConsoleCancelEventArgs e)
+		{
+			e.Cancel = true;
+			if (!Ctl.IsCancellationRequested)
+			{
+				Console.Error.WriteLine("\nCancelling...");
+			}
+			Ctl.Cancel();
+		};
+		if (args.Length >= 2 && args[0].Equals("run", StringComparison.OrdinalIgnoreCase))
+		{
+			return await RunJobFile(args[1]);
+		}
+		return await RunCli(args);
+	}
+
+	private static async Task<int> RunJobFile(string path)
+	{
+		if (!File.Exists(path))
+		{
+			Console.Error.WriteLine("cfcopy: job file not found: " + path);
+			return 2;
+		}
+		List<string> lines = (from l in File.ReadAllLines(path)
+			select l.Trim() into l
+			where l.Length > 0 && !l.StartsWith('#')
+			select l).ToList();
+		int worst = 0;
+		int i = 0;
+		foreach (string item in lines)
+		{
+			if (Ctl.IsCancellationRequested)
+			{
+				Console.WriteLine("Queue cancelled.");
+				return 3;
+			}
+			i++;
+			Console.WriteLine($"\n===== Job {i} of {lines.Count}: {item}");
+			int num = await RunCli(SplitArgs(item));
+			Console.WriteLine($"===== Job {i} finished with exit code {num}");
+			if (num == 3)
+			{
+				return 3;
+			}
+			worst = Math.Max(worst, num);
+		}
+		Console.WriteLine($"\nQueue finished: {lines.Count} job(s), " + ((worst == 0) ? "all OK." : "some had problems (see above)."));
+		return worst;
+	}
+
+	private static string[] SplitArgs(string line)
+	{
+		List<string> list = new List<string>();
+		StringBuilder stringBuilder = new StringBuilder();
+		bool flag = false;
+		bool flag2 = false;
+		foreach (char c in line)
+		{
+			if (c == '"')
+			{
+				flag = !flag;
+				flag2 = true;
+			}
+			else if (char.IsWhiteSpace(c) && !flag)
+			{
+				if (flag2 || stringBuilder.Length > 0)
+				{
+					list.Add(stringBuilder.ToString());
+					stringBuilder.Clear();
+					flag2 = false;
+				}
+			}
+			else
+			{
+				stringBuilder.Append(c);
+			}
+		}
+		if (flag2 || stringBuilder.Length > 0)
+		{
+			list.Add(stringBuilder.ToString());
+		}
+		return list.ToArray();
+	}
+
+	private static async Task<int> RunCli(string[] args)
+	{
+		string[] args2 = args;
+		bool flag = args2.Length == 0;
+		if (!flag)
+		{
+			bool flag2;
+			switch (args2[0])
+			{
+			case "-h":
+			case "--help":
+			case "/?":
+			case "help":
+				flag2 = true;
+				break;
+			default:
+				flag2 = false;
+				break;
+			}
+			flag = flag2;
+		}
+		if (flag)
+		{
+			Console.WriteLine(Usage);
+			return (args2.Length == 0) ? 2 : 0;
+		}
+		string text = args2[0].ToLowerInvariant();
+		List<string> list = new List<string>();
+		string text2 = null;
+		string from = null;
+		JobOptions o = new JobOptions();
+		bool flag3 = false;
+		bool quiet = false;
+		bool extra = false;
+		string pin = null;
+		int quietSecs = 5;
+		bool flag4 = false;
+		bool useUsn = false;
+		bool fullScan = false;
+		List<string> also = new List<string>();
+		string search = "";
+		bool clearHistory = false;
+		string listen = "127.0.0.1";
+		string pskFile = "";
+		string text3 = "";
+		int num = 9333;
+		int sizeMb = 1024;
+		bool sizeGiven = false;
+		double? num2 = null;
+		try
+		{
+			int i;
+			for (i = 1; i < args2.Length; i++)
+			{
+				string a = args2[i];
+				switch (a.ToLowerInvariant())
+				{
+				case "--to":
+					text2 = Next();
+					break;
+				case "--from":
+					from = Next();
+					break;
+				case "--verify":
+					o.Verify = true;
+					break;
+				case "--verify-algo":
+				{
+					string algoText = Next();
+					if (!VerifyAlgos.TryParse(algoText, out var algo))
+					{
+						throw new ArgumentException("unknown --verify-algo '" + algoText + "' (use xxh3, xxh128 or sha256)");
+					}
+					o.VerifyAlgo = algo;
+					o.Verify = true;
+					break;
+				}
+				case "--no-clone":
+					o.BlockClone = false;
+					break;
+				case "--safe-names":
+					o.DirectWriteRemovable = false;
+					break;
+				case "--eject":
+					o.EjectAfter = true;
+					break;
+				case "--search":
+					search = Next();
+					break;
+				case "--clear":
+					clearHistory = true;
+					break;
+				case "--overwrite":
+				{
+					JobOptions jobOptions = o;
+					string text4 = Next().ToLowerInvariant();
+					jobOptions.Overwrite = text4 switch
+					{
+						"different" => OverwriteMode.IfDifferent, 
+						"newer" => OverwriteMode.IfNewer, 
+						"always" => OverwriteMode.Always, 
+						"never" => OverwriteMode.Skip, 
+						_ => throw new ArgumentException("unknown overwrite mode '" + text4 + "'"), 
+					};
+					break;
+				}
+				case "--include":
+					o.Include = Next();
+					break;
+				case "--exclude":
+					o.Exclude = Next();
+					break;
+				case "--min-mb":
+					o.MinSizeBytes = (long)Int() * 1024L * 1024;
+					break;
+				case "--max-mb":
+					o.MaxSizeBytes = (long)Int() * 1024L * 1024;
+					break;
+				case "--days":
+					num2 = double.Parse(Next(), CultureInfo.InvariantCulture);
+					break;
+				case "--threads":
+					o.Threads = Int();
+					break;
+				case "--buffer":
+					o.BufferSizeMB = Int();
+					break;
+				case "--io":
+				{
+					JobOptions jobOptions = o;
+					string text6 = Next().ToLowerInvariant();
+					jobOptions.Io = text6 switch
+					{
+						"auto" => IoMode.Auto, 
+						"buffered" => IoMode.Buffered, 
+						"direct" => IoMode.Direct, 
+						_ => throw new ArgumentException("unknown I/O mode '" + text6 + "'"), 
+					};
+					break;
+				}
+				case "--method":
+				{
+					JobOptions jobOptions = o;
+					string text5 = Next().ToLowerInvariant();
+					jobOptions.Method = text5 switch
+					{
+						"auto" => CopyMethod.Auto, 
+						"pipeline" => CopyMethod.Pipeline, 
+						"native" => CopyMethod.Native, 
+						_ => throw new ArgumentException("unknown method '" + text5 + "'"), 
+					};
+					break;
+				}
+				case "--chunks":
+					o.ChunkWorkers = Int();
+					break;
+				case "--retries":
+					o.Retries = Int();
+					break;
+				case "--wait":
+					o.ReconnectWaitSeconds = Int();
+					break;
+				case "--acl":
+					o.CopyNtfsExtras = true;
+					break;
+				case "--split":
+					o.SplitOversize = true;
+					break;
+				case "--no-flush":
+					o.FlushToDisk = false;
+					break;
+				case "--no-dirtimes":
+					o.PreserveDirTimes = false;
+					break;
+				case "--recycle":
+					o.RecycleBin = true;
+					break;
+				case "--listen":
+					listen = Next();
+					break;
+				case "--port":
+					num = Int();
+					break;
+				case "--psk-file":
+					pskFile = Next();
+					break;
+				case "--fingerprint":
+					text3 = Next();
+					break;
+				case "--dry-run":
+					o.DryRun = true;
+					break;
+				case "--vss":
+					o.UseVss = true;
+					break;
+				case "--also":
+					also.Add(Next());
+					break;
+				case "--usn":
+					useUsn = true;
+					break;
+				case "--full-scan":
+					fullScan = true;
+					break;
+				case "--autotune":
+					o.AutoTune = true;
+					break;
+				case "--delta":
+					o.DeltaUpdate = true;
+					break;
+				case "--delta-min-mb":
+					o.DeltaMinMB = Int();
+					break;
+				case "--manifest":
+					o.WriteManifest = true;
+					break;
+				case "--sign":
+					o.ManifestSignKey = Next();
+					o.WriteManifest = true;
+					break;
+				case "--pin":
+					pin = Next();
+					break;
+				case "--extra":
+					extra = true;
+					break;
+				case "--quiet-secs":
+					quietSecs = Int();
+					break;
+				case "--mirror":
+					flag4 = true;
+					break;
+				case "--yes":
+				case "-y":
+					flag3 = true;
+					break;
+				case "--quiet":
+				case "-q":
+					quiet = true;
+					break;
+				case "--size-mb":
+					sizeMb = Int();
+					sizeGiven = true;
+					break;
+				default:
+					if (a.StartsWith("--"))
+					{
+						throw new ArgumentException("unknown option " + a);
+					}
+					list.Add(a);
+					break;
+				}
+				int Int()
+				{
+					return int.Parse(Next(), CultureInfo.InvariantCulture);
+				}
+				string Next()
+				{
+					if (i + 1 >= args2.Length)
+					{
+						throw new ArgumentException(a + " needs a value");
+					}
+					return args2[++i];
+				}
+			}
+			if (num2.HasValue)
+			{
+				o.ModifiedSinceUtc = DateTime.UtcNow.AddDays(0.0 - num2.Value);
+			}
+			switch (text)
+			{
+			case "history":
+				return ShowHistory(list, search, clearHistory, flag3);
+			case "audit":
+				if (list.Count != 1)
+				{
+					throw new ArgumentException("audit needs exactly one FOLDER");
+				}
+				return await Audit(list[0], o.Threads, extra, pin, quiet);
+			case "fakecheck":
+				if (list.Count != 1)
+				{
+					throw new ArgumentException("fakecheck needs exactly one FOLDER on the drive to test");
+				}
+				return FakeCheck(list[0], sizeGiven ? sizeMb : 0, quiet);
+			case "bench":
+				if (text2 == null)
+				{
+					throw new ArgumentException("bench needs --to DIR");
+				}
+				return await Bench(from, text2, sizeMb);
+			case "receive":
+				if (list.Count != 1)
+				{
+					throw new ArgumentException("receive needs exactly one FOLDER");
+				}
+				return await Receive(list[0], listen, num, pskFile);
+			case "send":
+				if (list.Count == 0 || text2 == null)
+				{
+					throw new ArgumentException("send needs SOURCE and --to HOST[:PORT]");
+				}
+				if (text3.Length == 0)
+				{
+					throw new ArgumentException("send needs --fingerprint (shown by the receiver)");
+				}
+				return await Send(list, text2, num, pskFile, text3);
+			case "watch":
+				if (list.Count == 0 || text2 == null)
+				{
+					throw new ArgumentException("watch needs SOURCE and --to DEST");
+				}
+				if (flag4 && !flag3)
+				{
+					throw new ArgumentException("--mirror deletes files in DEST. Add --yes to confirm.");
+				}
+				o.Sources = list;
+				o.Destination = text2;
+				o.Mode = (flag4 ? JobMode.Sync : JobMode.Copy);
+				return await Watch(o, quietSecs, quiet);
+			case "compare":
+				if (list.Count != 1 || text2 == null || !Directory.Exists(list[0]))
+				{
+					throw new ArgumentException("compare needs one source FOLDER and --to DEST");
+				}
+				o.Mode = JobMode.Sync;
+				o.DryRun = true;
+				o.Sources = list;
+				o.Destination = text2;
+				return await RunJob(o, quiet, useUsn: false, fullScan: false, compare: true);
+			default:
+			{
+				o.Mode = text switch
+				{
+					"copy" => JobMode.Copy, 
+					"move" => JobMode.Move, 
+					"sync" => JobMode.Sync, 
+					"delete" => JobMode.Delete, 
+					_ => throw new ArgumentException("unknown command '" + text + "'"), 
+				};
+				if (list.Count == 0)
+				{
+					throw new ArgumentException("no source given");
+				}
+				if (o.Mode != JobMode.Delete && text2 == null)
+				{
+					throw new ArgumentException("missing --to DEST");
+				}
+				JobMode mode = o.Mode;
+				flag = (uint)(mode - 2) <= 1u;
+				if (flag && !flag3)
+				{
+					throw new ArgumentException("'" + text + "' deletes files. Add --yes to confirm.");
+				}
+				o.Sources = list;
+				o.Destination = text2 ?? "";
+				break;
+			}
+			}
+		}
+		catch (Exception ex) when (((ex is ArgumentException || ex is FormatException) ? 1 : 0) != 0)
+		{
+			Console.Error.WriteLine("cfcopy: " + ex.Message);
+			Console.Error.WriteLine("Run 'cfcopy help' for usage.");
+			return 2;
+		}
+		int num3 = await RunJob(o, quiet, useUsn, fullScan, compare: false);
+		foreach (string item in also)
+		{
+			if (!Ctl.IsCancellationRequested && num3 != 3)
+			{
+				Console.WriteLine("\n--- Also copying to " + item);
+				JobOptions jobOptions2 = o.Clone();
+				jobOptions2.Destination = item;
+				int val = num3;
+				num3 = Math.Max(val, await RunJob(jobOptions2, quiet, useUsn: false, fullScan: false, compare: false));
+				continue;
+			}
+			break;
+		}
+		return num3;
+	}
+
+	private static int ShowHistory(List<string> args, string search, bool clear, bool yes)
+	{
+		if (clear)
+		{
+			if (!yes)
+			{
+				throw new ArgumentException("--clear erases the whole history. Add --yes to confirm.");
+			}
+			JobHistory.Clear();
+			Console.WriteLine("History cleared.");
+			return 0;
+		}
+		int n = 20;
+		if (args.Count > 0 && (!int.TryParse(args[0], out n) || n < 1))
+		{
+			throw new ArgumentException("history: '" + args[0] + "' is not a number of jobs");
+		}
+		List<HistoryEntry> list = JobHistory.Read(n, search);
+		if (list.Count == 0)
+		{
+			Console.WriteLine("No jobs in the history" + (string.IsNullOrWhiteSpace(search) ? "." : " match that search.") + "  (" + JobHistory.FilePath + ")");
+			return 0;
+		}
+		foreach (HistoryEntry e in list)
+		{
+			string dest = e.Destination + ((e.ExtraDestinations.Count > 0) ? $" (+{e.ExtraDestinations.Count})" : "");
+			string src = (e.Sources.Count == 0) ? "?" : (e.Sources[0] + ((e.Sources.Count > 1) ? $" (+{e.Sources.Count - 1})" : ""));
+			Console.WriteLine($"{e.Started:yyyy-MM-dd HH:mm}  {e.Outcome,-9} {e.Mode.ToUpperInvariant(),-6} {e.FilesProcessed,7:N0} files {Fmt(e.Bytes),10}  {e.FilesSkipped:N0} skipped  {e.FilesFailed:N0} failed  {TimeSpan.FromSeconds(e.ElapsedSeconds):hh\\:mm\\:ss}" + (e.Verify ? ("  [verify " + e.VerifyAlgo + "]") : "") + "  [" + e.Source + "]");
+			Console.WriteLine("    " + src + "  ->  " + dest);
+			if (!string.IsNullOrEmpty(e.Problem))
+			{
+				Console.WriteLine("    PROBLEM: " + e.Problem);
+			}
+			foreach (string err in e.Errors.Take(3))
+			{
+				Console.WriteLine("    ERROR: " + err);
+			}
+		}
+		return 0;
+	}
+
+	private static async Task<int> RunJob(JobOptions o, bool quiet, bool useUsn, bool fullScan, bool compare)
+	{
+		UsnIncremental.Prepared usn = null;
+		if (useUsn)
+		{
+			usn = UsnIncremental.Prepare(o, delegate(string m)
+			{
+				Console.WriteLine(m);
+			}, fullScan);
+			o = usn.Options;
+		}
+		CopyJob job = new CopyJob(o);
+		job.Message += delegate(string m)
+		{
+			lock (Console.Out)
+			{
+				ClearLine();
+				Console.WriteLine(m);
+			}
+		};
+		Stopwatch.StartNew();
+		Task<JobResult> run = job.RunAsync(Ctl.Token);
+		Task.Run(async delegate
+		{
+			bool tty = !Console.IsOutputRedirected;
+			while (!run.IsCompleted)
+			{
+				await Task.Delay(tty ? 500 : 5000);
+				if (!quiet && !run.IsCompleted)
+				{
+					ProgressSnapshot snapshot = job.GetSnapshot();
+					string text = $"{snapshot.Phase,-10} {snapshot.Fraction * 100.0,5:0.0}%  {Fmt(snapshot.BytesDone)}/{Fmt(snapshot.BytesTotal)}  {Fmt((long)snapshot.BytesPerSecond)}/s  files {snapshot.FilesDone}/{snapshot.FilesTotal}  failed {snapshot.FilesFailed}";
+					lock (Console.Out)
+					{
+						if (tty)
+						{
+							Console.Write("\r" + text.PadRight((Console.WindowWidth > 1) ? (Console.WindowWidth - 1) : text.Length));
+						}
+						else
+						{
+							Console.WriteLine(text);
+						}
+					}
+				}
+			}
+		});
+		JobResult jobResult;
+		try
+		{
+			jobResult = await run;
+		}
+		catch (Exception ex)
+		{
+			ClearLine();
+			Console.Error.WriteLine("cfcopy: " + ex.Message);
+			return 2;
+		}
+		ClearLine();
+		usn?.Commit(jobResult);
+		if (jobResult.Preview == null)
+		{
+			JobHistory.Append(new JobRecord(DateTime.Now - jobResult.Elapsed, o, jobResult, null), "cli");
+		}
+		if (jobResult.Preview == null)
+		{
+			Console.WriteLine($"{(jobResult.Cancelled ? "CANCELLED" : ((jobResult.FilesFailed > 0) ? "DONE WITH ERRORS" : "DONE"))}: {jobResult.FilesProcessed} files, {Fmt(jobResult.BytesTransferred)}, {jobResult.FilesSkipped} skipped, {jobResult.FilesDeleted} deleted, {jobResult.FilesFailed} failed, {jobResult.Elapsed:hh\\:mm\\:ss}" + ((jobResult.Elapsed.TotalSeconds > 0.0 && jobResult.BytesTransferred > 0) ? (", avg " + Fmt((long)((double)jobResult.BytesTransferred / jobResult.Elapsed.TotalSeconds)) + "/s") : ""));
+		}
+		foreach (string item in jobResult.Errors.Take(20))
+		{
+			Console.Error.WriteLine("  ERROR: " + item);
+		}
+		if (jobResult.Errors.Count > 20)
+		{
+			Console.Error.WriteLine($"  ... and {jobResult.Errors.Count - 20} more");
+		}
+		PlanPreview preview = jobResult.Preview;
+		if ((object)preview != null)
+		{
+			foreach (string item2 in preview.CopyList.Take(200))
+			{
+				Console.WriteLine((compare ? "  DIFFERENT/NEW  " : "  WOULD COPY     ") + item2);
+			}
+			foreach (string item3 in preview.DeleteList.Take(200))
+			{
+				Console.WriteLine((compare ? "  ONLY IN DEST   " : "  WOULD DELETE   ") + item3);
+			}
+			if (preview.CopyList.Count > 200 || preview.DeleteList.Count > 200 || preview.Truncated)
+			{
+				Console.WriteLine("  ... list shortened (counts above are complete)");
+			}
+			Console.WriteLine($"PREVIEW: {preview.CopyCount:N0} to copy ({Fmt(preview.CopyBytes)}), {preview.SkipCount:N0} unchanged, {preview.DeleteCount:N0} to delete. Nothing was changed.");
+			if (compare)
+			{
+				Console.WriteLine((preview.CopyCount + preview.DeleteCount == 0L) ? "RESULT: identical." : "RESULT: the folders differ.");
+				return (preview.CopyCount + preview.DeleteCount != 0) ? 1 : 0;
+			}
+		}
+		return jobResult.Cancelled ? 3 : ((jobResult.FilesFailed > 0) ? 1 : 0);
+	}
+
+	private static void ClearLine()
+	{
+		if (!Console.IsOutputRedirected)
+		{
+			try
+			{
+				Console.Write("\r" + new string(' ', Math.Max(Console.WindowWidth - 1, 1)) + "\r");
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	private static string Fmt(long b)
+	{
+		string[] array = new string[5] { "B", "KB", "MB", "GB", "TB" };
+		double num = Math.Max(b, 0L);
+		int num2 = 0;
+		while (num >= 1024.0 && num2 < array.Length - 1)
+		{
+			num /= 1024.0;
+			num2++;
+		}
+		if (num2 == 0)
+		{
+			return $"{num:0} {array[num2]}";
+		}
+		return $"{num:0.0} {array[num2]}";
+	}
+
+	private static int FakeCheck(string folder, int maxMb, bool quiet)
+	{
+		using CancellationTokenSource cts = new CancellationTokenSource();
+		Console.CancelKeyPress += delegate(object? _, ConsoleCancelEventArgs e)
+		{
+			e.Cancel = true;
+			cts.Cancel();
+		};
+		try
+		{
+			CapacityResult capacityResult = CapacityTest.Run(folder, (long)maxMb * 1048576L, quiet ? null : new Action<string>(Console.WriteLine), cts.Token);
+			Console.WriteLine(capacityResult.Summary);
+			return capacityResult.Passed ? 0 : 1;
+		}
+		catch (OperationCanceledException)
+		{
+			Console.WriteLine("Capacity test cancelled; test files removed.");
+			return 3;
+		}
+	}
+
+	private static async Task<int> Bench(string? from, string to, int sizeMb)
+	{
+		if (from == null)
+		{
+			from = Path.GetTempPath();
+		}
+		Directory.CreateDirectory(from);
+		Directory.CreateDirectory(to);
+		string work = Path.Combine(from, "cf_bench_src_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+		string outDir = Path.Combine(to, "cf_bench_dst_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+		Directory.CreateDirectory(work);
+		string file = Path.Combine(work, "bench.bin");
+		Console.WriteLine($"Benchmark: {sizeMb} MB file   from {from}   to {to}");
+		Console.WriteLine("Creating test file...");
+		Random random = new Random(1);
+		byte[] array = new byte[4194304];
+		using (FileStream fileStream = new FileStream(file, FileMode.Create, FileAccess.Write, FileShare.None, 65536))
+		{
+			for (long num = 0L; num < (long)sizeMb * 1024L * 1024; num += array.Length)
+			{
+				random.NextBytes(array);
+				fileStream.Write(array, 0, (int)Math.Min(array.Length, (long)sizeMb * 1024L * 1024 - num));
+			}
+		}
+		(string, Action<JobOptions>)[] array2 = new(string, Action<JobOptions>)[8]
+		{
+			("pipeline, cached I/O, 4 MB", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Pipeline;
+				o.Io = IoMode.Buffered;
+				o.ChunkWorkers = 1;
+			}),
+			("pipeline, direct I/O, 4 MB", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Pipeline;
+				o.Io = IoMode.Direct;
+				o.ChunkWorkers = 1;
+			}),
+			("pipeline, direct I/O, 16 MB", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Pipeline;
+				o.Io = IoMode.Direct;
+				o.ChunkWorkers = 1;
+				o.BufferSizeMB = 16;
+			}),
+			("direct I/O, 3 parallel chunks", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Pipeline;
+				o.Io = IoMode.Direct;
+				o.ChunkWorkers = 3;
+			}),
+			("direct I/O, 6 parallel chunks", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Pipeline;
+				o.Io = IoMode.Direct;
+				o.ChunkWorkers = 6;
+			}),
+			("windows native (CopyFileEx)", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Native;
+				o.Io = IoMode.Buffered;
+			}),
+			("windows native, no buffering", delegate(JobOptions o)
+			{
+				o.Method = CopyMethod.Native;
+				o.Io = IoMode.Direct;
+			}),
+			("AUTO (what the app would pick)", delegate
+			{
+			})
+		};
+		Console.WriteLine();
+		Console.WriteLine($"{"strategy",-36} {"time",8} {"speed",12}");
+		try
+		{
+			(string Name, Action<JobOptions> Set)[] array3 = array2;
+			for (int i = 0; i < array3.Length; i++)
+			{
+				var (name, action) = array3[i];
+				if (!OperatingSystem.IsWindows() && (name.Contains("native") || name.Contains("direct")))
+				{
+					Console.WriteLine($"{name,-36} skipped (Windows only)");
+					continue;
+				}
+				if (Directory.Exists(outDir))
+				{
+					Directory.Delete(outDir, recursive: true);
+				}
+				JobOptions jobOptions = new JobOptions
+				{
+					Sources = { file },
+					Destination = outDir,
+					Overwrite = OverwriteMode.Always,
+					Threads = 1
+				};
+				action(jobOptions);
+				try
+				{
+					JobResult jobResult = await new CopyJob(jobOptions).RunAsync(CancellationToken.None);
+					if (jobResult.FilesFailed > 0)
+					{
+						Console.WriteLine($"{name,-36} failed: {jobResult.Errors.FirstOrDefault()}");
+					}
+					else
+					{
+						Console.WriteLine($"{name,-36} {jobResult.Elapsed.TotalSeconds,7:0.0}s {Fmt((long)((double)sizeMb * 1048576.0 / jobResult.Elapsed.TotalSeconds)),10}/s");
+					}
+				}
+				catch (Exception ex)
+				{
+					Console.WriteLine($"{name,-36} skipped: {ex.Message}");
+				}
+			}
+		}
+		finally
+		{
+			try
+			{
+				Directory.Delete(work, recursive: true);
+			}
+			catch
+			{
+			}
+			try
+			{
+				if (Directory.Exists(outDir))
+				{
+					Directory.Delete(outDir, recursive: true);
+				}
+			}
+			catch
+			{
+			}
+		}
+		Console.WriteLine();
+		Console.WriteLine("Notes: cached-I/O results can look faster after the source file is in memory; native entries need Windows.");
+		Console.WriteLine("Use a file larger than your RAM cache effects (e.g. --size-mb 4096) for the most honest numbers.");
+		return 0;
+	}
+}

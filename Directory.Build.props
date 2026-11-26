@@ -1,0 +1,16 @@
+<Project>
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Version>3.3.12</Version>
+    <AssemblyVersion>3.3.12.0</AssemblyVersion>
+    <FileVersion>3.3.12.0</FileVersion>
+    <Company>Andrew Williams</Company>
+    <Product>CopyForge</Product>
+    <Copyright>Copyright (c) 2026 Andrew Williams</Copyright>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+</Project>

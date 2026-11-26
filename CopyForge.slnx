@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CopyForge.App/CopyForge.App.csproj" />
+    <Project Path="src/CopyForge.Cli/CopyForge.Cli.csproj" />
+    <Project Path="src/CopyForge.Engine/CopyForge.Engine.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CopyForge.SmokeTest/CopyForge.SmokeTest.csproj" />
+  </Folder>
+</Solution>

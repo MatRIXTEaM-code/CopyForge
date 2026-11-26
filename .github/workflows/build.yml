@@ -1,0 +1,28 @@
+name: build
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Build
+        run: dotnet build CopyForge.slnx -c Release
+      - name: Smoke tests
+        run: dotnet run --project tests/CopyForge.SmokeTest -c Release
+      - name: Publish
+        run: |
+          dotnet publish src/CopyForge.App -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o out/app
+          dotnet publish src/CopyForge.Cli -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o out/cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CopyForge-win-x64
+          path: |
+            out/app/CopyForge.exe
+            out/cli/cfcopy.exe

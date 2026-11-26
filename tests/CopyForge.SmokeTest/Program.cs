@@ -1,0 +1,270 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using CopyForge.Engine;
+using CopyForge.Engine.Net;
+
+namespace CopyForge.SmokeTest;
+
+internal static class Program
+{
+	private static int _pass;
+
+	private static int _fail;
+
+	private static void Check(string name, bool ok, string detail = "")
+	{
+		if (ok)
+		{
+			_pass++;
+			Console.WriteLine("  ok    " + name);
+		}
+		else
+		{
+			_fail++;
+			Console.WriteLine("  FAIL  " + name + (string.IsNullOrEmpty(detail) ? "" : ("  (" + detail + ")")));
+		}
+	}
+
+	private static string MakeTree(string root)
+	{
+		string src = Path.Combine(root, "src");
+		Directory.CreateDirectory(Path.Combine(src, "sub", "deep"));
+		Directory.CreateDirectory(Path.Combine(src, "empty"));
+		Random rnd = new Random(42);
+		byte[] big = new byte[13000000];
+		rnd.NextBytes(big);
+		File.WriteAllBytes(Path.Combine(src, "big.bin"), big);
+		for (int i = 0; i < 40; i++)
+		{
+			byte[] b = new byte[rnd.Next(0, 90000)];
+			rnd.NextBytes(b);
+			File.WriteAllBytes(Path.Combine(src, "sub", (i % 2 == 0) ? "deep" : "", $"f{i}.dat"), b);
+		}
+		File.SetLastWriteTimeUtc(Path.Combine(src, "big.bin"), new DateTime(2024, 5, 6, 7, 8, 10, DateTimeKind.Utc));
+		return src;
+	}
+
+	private static bool SameTree(string a, string b)
+	{
+		List<string> fa = Directory.EnumerateFiles(a, "*", SearchOption.AllDirectories).Select((string f) => Path.GetRelativePath(a, f)).OrderBy((string f) => f, StringComparer.Ordinal).ToList();
+		List<string> fb = Directory.EnumerateFiles(b, "*", SearchOption.AllDirectories).Select((string f) => Path.GetRelativePath(b, f)).OrderBy((string f) => f, StringComparer.Ordinal).ToList();
+		if (!fa.SequenceEqual(fb))
+		{
+			return false;
+		}
+		return fa.All((string f) => File.ReadAllBytes(Path.Combine(a, f)).AsSpan().SequenceEqual(File.ReadAllBytes(Path.Combine(b, f))));
+	}
+
+	private static async Task<JobResult> Run(JobOptions o)
+	{
+		return await new CopyJob(o).RunAsync(CancellationToken.None);
+	}
+
+	private static async Task<int> Main()
+	{
+		string root = Path.Combine(Path.GetTempPath(), "cf-smoke-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+		Directory.CreateDirectory(root);
+		try
+		{
+			string src = MakeTree(root);
+			Console.WriteLine("Copy + verify, each checksum");
+			foreach (VerifyAlgo algo in Enum.GetValues<VerifyAlgo>())
+			{
+				string dst = Path.Combine(root, "dst-" + algo);
+				JobResult r = await Run(new JobOptions
+				{
+					Sources = new List<string> { src },
+					Destination = dst,
+					Mode = JobMode.Copy,
+					Verify = true,
+					VerifyAlgo = algo
+				});
+				Check($"{VerifyAlgos.Name(algo)}: no failures", r.FilesFailed == 0 && r.Errors.Count == 0, string.Join("; ", r.Errors.Take(2)));
+				Check($"{VerifyAlgos.Name(algo)}: tree identical", SameTree(src, Path.Combine(dst, "src")));
+				Check($"{VerifyAlgos.Name(algo)}: empty folder kept", Directory.Exists(Path.Combine(dst, "src", "empty")));
+			}
+			Console.WriteLine("Checksums tell different data apart");
+			byte[] x = new byte[5000];
+			byte[] y = (byte[])x.Clone();
+			y[4321] = 1;
+			foreach (VerifyAlgo algo2 in Enum.GetValues<VerifyAlgo>())
+			{
+				Check(VerifyAlgos.Name(algo2) + ": one flipped byte changes the checksum", HashKey.Once(algo2, x) != HashKey.Once(algo2, y));
+				Check(VerifyAlgos.Name(algo2) + ": same data gives the same checksum", HashKey.Once(algo2, x) == HashKey.Once(algo2, (byte[])x.Clone()));
+			}
+			Check("SHA-256 uses all 256 bits", HashKey.Once(VerifyAlgo.Sha256, x).D != 0uL || HashKey.Once(VerifyAlgo.Sha256, x).C != 0uL);
+			Check("algorithm names parse", VerifyAlgos.TryParse("sha-256", out var pa) && pa == VerifyAlgo.Sha256 && VerifyAlgos.TryParse("XXH128", out pa) && pa == VerifyAlgo.XxHash128 && !VerifyAlgos.TryParse("md5", out pa));
+			Console.WriteLine("Skip identical, then catch a change");
+			string d1 = Path.Combine(root, "dst-" + VerifyAlgo.XxHash3);
+			JobResult again = await Run(new JobOptions
+			{
+				Sources = new List<string> { src },
+				Destination = d1,
+				Mode = JobMode.Copy
+			});
+			Check("second run copies nothing", again.FilesProcessed == 0 && again.FilesSkipped > 0, $"copied {again.FilesProcessed}, skipped {again.FilesSkipped}");
+			File.AppendAllText(Path.Combine(src, "sub", "new.txt"), "hello");
+			JobResult third = await Run(new JobOptions
+			{
+				Sources = new List<string> { src },
+				Destination = d1,
+				Mode = JobMode.Copy,
+				Verify = true,
+				VerifyAlgo = VerifyAlgo.Sha256
+			});
+			Check("new file is copied and verified", third.FilesProcessed == 1 && third.FilesFailed == 0);
+			Console.WriteLine("Block clone setting is harmless where ReFS is absent");
+			string d2 = Path.Combine(root, "dst-clone");
+			JobResult c = await Run(new JobOptions
+			{
+				Sources = new List<string> { src },
+				Destination = d2,
+				Mode = JobMode.Copy,
+				BlockClone = true,
+				Verify = true
+			});
+			Check("copy with BlockClone on", c.FilesFailed == 0 && SameTree(src, Path.Combine(d2, "src")));
+			Console.WriteLine("Several destinations");
+			JobResult a = new JobResult(1L, 2L, 3L, 4L, 5L, TimeSpan.FromSeconds(1.0), Cancelled: false, new string[1] { "e1" });
+			JobResult b = new JobResult(10L, 20L, 30L, 40L, 50L, TimeSpan.FromSeconds(2.0), Cancelled: true, new string[1] { "e2" });
+			JobResult m = JobResults.Merge(a, b);
+			Check("merged counts add up", m.FilesProcessed == 11 && m.FilesSkipped == 22 && m.FilesDeleted == 33 && m.FilesFailed == 44 && m.BytesTransferred == 55 && m.Cancelled && m.Errors.Count == 2 && m.Elapsed == TimeSpan.FromSeconds(3.0));
+			Console.WriteLine("History");
+			string appData = Path.Combine(root, "appdata");
+			Directory.CreateDirectory(appData);
+			string oldHome = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
+			Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", appData);
+			try
+			{
+				JobHistory.Clear();
+				JobOptions ho = new JobOptions
+				{
+					Sources = new List<string> { "C:\\a", "C:\\b" },
+					Destination = "F:\\one",
+					ExtraDestinations = new List<string> { "G:\\two" },
+					Mode = JobMode.Copy,
+					Verify = true,
+					VerifyAlgo = VerifyAlgo.Sha256
+				};
+				JobHistory.Append(new JobRecord(new DateTime(2026, 11, 24, 20, 0, 0), ho, new JobResult(5L, 0L, 0L, 0L, 1000L, TimeSpan.FromSeconds(3.0), Cancelled: false, Array.Empty<string>()), null), "test");
+				JobHistory.Append(new JobRecord(new DateTime(2026, 11, 24, 21, 0, 0), ho, new JobResult(2L, 0L, 0L, 1L, 10L, TimeSpan.FromSeconds(1.0), Cancelled: false, new string[1] { "boom.bin: access denied" }), null), "test");
+				JobHistory.Append(new JobRecord(new DateTime(2026, 11, 24, 22, 0, 0), ho, null, "destination missing"), "test");
+				List<HistoryEntry> all = JobHistory.Read();
+				Check("three jobs recorded, newest first", all.Count == 3 && all[0].Started.Hour == 22 && all[2].Started.Hour == 20, $"count {all.Count}");
+				Check("outcomes", all[0].Outcome == "PROBLEM" && all[1].Outcome == "ERRORS" && all[2].Outcome == "OK");
+				Check("search by text", JobHistory.Read(500, "boom").Count == 1 && JobHistory.Read(500, "SHA-256").Count == 3 && JobHistory.Read(500, "nonexistent").Count == 0);
+				Check("extra destination kept", all[2].ExtraDestinations.SequenceEqual(new string[1] { "G:\\two" }) && all[2].Sources.Count == 2);
+				JobHistory.Clear();
+				Check("clear", JobHistory.Read().Count == 0);
+			}
+			finally
+			{
+				Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", oldHome);
+			}
+			Console.WriteLine("USB speed and eject");
+			Check("USB 2.0 is flagged", new BusInfo(Known: true, 7, 2, 0).IsUsb2OrOlder && new BusInfo(Known: true, 7, 2, 0).Describe() == "USB 2.0");
+			Check("USB 3.x is not flagged", !new BusInfo(Known: true, 7, 3, 0).IsUsb2OrOlder && new BusInfo(Known: true, 7, 3, 2).Describe() == "USB 3.2");
+			Check("unknown USB version is not flagged", !new BusInfo(Known: true, 7, 0, 0).IsUsb2OrOlder && new BusInfo(Known: true, 7, 0, 0).IsUsb);
+			Check("non-USB bus is not flagged", !new BusInfo(Known: true, 17, 2, 0).IsUsb2OrOlder && !default(BusInfo).IsUsb);
+			Check("bus probe never throws", !Native.ProbeBus(root).IsUsb2OrOlder);
+			Check("eject refuses a non-removable path", !Native.EjectVolume(root, out var ejectMsg) && ejectMsg.Length > 0, ejectMsg);
+			JobResult ej = await Run(new JobOptions
+			{
+				Sources = new List<string> { src },
+				Destination = Path.Combine(root, "dst-eject"),
+				Mode = JobMode.Copy,
+				EjectAfter = true
+			});
+			Check("copy with eject-after on a fixed drive finishes normally", ej.FilesFailed == 0 && ej.FilesProcessed > 0);
+			Console.WriteLine("Diagnostics report");
+			DiagnosticsResult rep = DiagnosticsReport.Build(new DiagnosticsInput("test", null, new JobOptions
+			{
+				Sources = new List<string> { src },
+				Destination = Path.Combine(root, "dst-report"),
+				Verify = true,
+				VerifyAlgo = VerifyAlgo.Sha256
+			}, new List<string>(), new List<string>(), Path.Combine(root, "crash.log")));
+			Check("report names the checksum", rep.Text.Contains("on (SHA-256)"));
+			Check("report built without failures", rep.Fails == 0, rep.Fails + " fail");
+			// --- encrypted transport ---
+			{
+				byte[] psk = new byte[32]; new Random(7).NextBytes(psk);
+				byte[] nonce = new byte[32]; new Random(8).NextBytes(nonce);
+				byte[] ch = new byte[32]; new Random(9).NextBytes(ch);
+				byte[] payload = System.Text.Encoding.ASCII.GetBytes("TOP-SECRET-PAYLOAD-12345");
+				var wire = new MemoryStream();
+				Wire.EnableEncryption(wire, psk, nonce, ch, isClient: true);
+				Wire.WriteFrameAsync(wire, 5, payload, CancellationToken.None).GetAwaiter().GetResult();
+				Wire.WriteFrameAsync(wire, 5, payload, CancellationToken.None).GetAwaiter().GetResult();
+				byte[] raw = wire.ToArray();
+				Check("wire: plaintext not visible", raw.AsSpan().IndexOf(payload) < 0);
+				var rd = new MemoryStream(raw);
+				Wire.EnableEncryption(rd, psk, nonce, ch, isClient: false);
+				var f1 = Wire.ReadFrameAsync(rd, CancellationToken.None).GetAwaiter().GetResult();
+				var f2 = Wire.ReadFrameAsync(rd, CancellationToken.None).GetAwaiter().GetResult();
+				Check("wire: frames round-trip", f1.type == 5 && f1.payload.SequenceEqual(payload) && f2.payload.SequenceEqual(payload));
+				byte[] bad = (byte[])raw.Clone(); bad[bad.Length - 3] ^= 1;
+				var tm = new MemoryStream(bad); Wire.EnableEncryption(tm, psk, nonce, ch, isClient: false);
+				bool tamperCaught = false;
+				try { Wire.ReadFrameAsync(tm, CancellationToken.None).GetAwaiter().GetResult(); Wire.ReadFrameAsync(tm, CancellationToken.None).GetAwaiter().GetResult(); } catch (InvalidDataException) { tamperCaught = true; }
+				Check("wire: tampering detected", tamperCaught);
+				// replay: second frame delivered first
+				int frameLen = raw.Length / 2;
+				var rp = new MemoryStream(raw.Skip(frameLen).ToArray()); Wire.EnableEncryption(rp, psk, nonce, ch, isClient: false);
+				bool replayCaught = false;
+				try { Wire.ReadFrameAsync(rp, CancellationToken.None).GetAwaiter().GetResult(); } catch (InvalidDataException) { replayCaught = true; }
+				Check("wire: replay/out-of-order detected", replayCaught);
+				var wk = new MemoryStream(raw); byte[] psk2 = (byte[])psk.Clone(); psk2[0] ^= 1; Wire.EnableEncryption(wk, psk2, nonce, ch, isClient: false);
+				bool wrongKey = false;
+				try { Wire.ReadFrameAsync(wk, CancellationToken.None).GetAwaiter().GetResult(); } catch (InvalidDataException) { wrongKey = true; }
+				Check("wire: wrong key refused", wrongKey);
+			}
+			// --- loopback send/receive over TLS + AES layer ---
+			{
+				string rx = Path.Combine(root, "rx");
+				string pskPath = Path.Combine(root, "psk.bin");
+				byte[] psk = new byte[32]; new Random(11).NextBytes(psk);
+				var srv = new AgentServer(rx, psk, System.Net.IPAddress.Loopback, 0, Path.Combine(root, "cert.pfx"));
+				using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+				Task run = srv.RunAsync(cts.Token);
+				for (int i = 0; i < 100 && srv.Port == 0; i++) Thread.Sleep(20);
+				var log = new List<string>();
+				var res = AgentClient.SendAsync("127.0.0.1", srv.Port, psk, srv.Fingerprint, new[] { Path.Combine(src, "sub") }, m => log.Add(m), cts.Token).GetAwaiter().GetResult();
+				Check("loopback: files sent over secure channel", res.Failed == 0 && res.Sent > 0 && log.Any(l => l.Contains("Secure channel up")), $"sent {res.Sent} failed {res.Failed}");
+				byte[] badPsk = (byte[])psk.Clone(); badPsk[5] ^= 1;
+				bool refused = false;
+				try { var r2 = AgentClient.SendAsync("127.0.0.1", srv.Port, badPsk, srv.Fingerprint, new[] { Path.Combine(src, "sub") }, null, cts.Token).GetAwaiter().GetResult(); refused = r2.Sent == 0; } catch (Exception) { refused = true; }
+				Check("loopback: wrong secret refused", refused);
+				bool badFp = false;
+				try { var r3 = AgentClient.SendAsync("127.0.0.1", srv.Port, psk, new string('0', 64), new[] { Path.Combine(src, "sub") }, null, cts.Token).GetAwaiter().GetResult(); badFp = r3.Sent == 0; } catch (Exception) { badFp = true; }
+				Check("loopback: wrong fingerprint refused", badFp);
+				cts.Cancel();
+				try { run.GetAwaiter().GetResult(); } catch { }
+			}
+			// --- capacity test ---
+			{
+				string cap = Path.Combine(root, "cap"); Directory.CreateDirectory(cap);
+				var cr = CapacityTest.Run(cap, 24L * 1048576L, null, CancellationToken.None, 8L * 1048576L);
+				Check("capacity test passes on a healthy folder", cr.Passed && cr.BytesWritten >= 24L * 1048576L && cr.BadBlocks == 0, cr.Summary);
+				Check("capacity test leaves no files behind", Directory.GetFileSystemEntries(cap).Length == 0);
+			}
+		}
+		finally
+		{
+			try
+			{
+				Directory.Delete(root, recursive: true);
+			}
+			catch
+			{
+			}
+		}
+		Console.WriteLine();
+		Console.WriteLine((_fail == 0) ? $"ALL PASSED ({_pass} checks)" : $"FAILED: {_fail} of {_pass + _fail} checks");
+		return (_fail == 0) ? 0 : 1;
+	}
+}
