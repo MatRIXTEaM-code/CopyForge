@@ -17,7 +17,7 @@ namespace CopyForge.Cli;
 
 internal static class Program
 {
-	private const string Usage = "\ncfcopy - CopyForge command line\n\n  cfcopy copy   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy move   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy sync   SOURCE_FOLDER      --to DEST [options]   (mirror: deletes extra files in DEST; needs --yes)\n  cfcopy delete SOURCE [SOURCE...] [options]             (needs --yes)\n  cfcopy watch  SOURCE [SOURCE...] --to DEST [options]   (keep DEST in step until Ctrl+C; re-syncs when the stick/share returns)\n  cfcopy receive FOLDER [--listen ADDR] [--port 9333] [--psk-file F]   (accept files from another PC into FOLDER; prints the fingerprint)\n  cfcopy send   SOURCE [SOURCE...] --to HOST[:PORT] --fingerprint HEX [--psk-file F]   (push files to a receiving PC)\n  cfcopy audit  FOLDER [--pin KEYID] [--extra]           (re-hash every file against cfmanifest.json; exit 1 if anything differs)\n  cfcopy compare SOURCE_FOLDER --to DEST                 (list what differs; changes nothing; exit 1 if they differ)\n  cfcopy run    JOBFILE                                  (run the commands in a text file one after another; # = comment)\n  cfcopy bench  [--from DIR] --to DIR [--size-mb 1024]   (speed test of the copy strategies on your drives)\n  cfcopy fakecheck FOLDER [--size-mb N]                  (fake-capacity drive test: fills the free space on the drive holding FOLDER with checkable data, reads it back, deletes it; N limits how many MB to test)\n  cfcopy history [N] [--search TEXT] [--clear --yes]     (list the last N jobs, default 20; --clear erases the history)\n\nOptions\n  --verify                 re-read and compare every file (bypasses the Windows cache)\n  --verify-algo ALGO       xxh3 (default, fast) | xxh128 | sha256 ; implies --verify\n  --no-clone               do not use ReFS block cloning for same-volume copies\n  --eject                  safely eject a removable destination when the job finishes without errors\n  --safe-names             USB sticks: keep the temp name + rename for every file (slower, no partial file under the real name)\n  --overwrite MODE         different (default) | newer | always | never\n  --include \"a;b\"          wildcard include list        --exclude \"a;b/\"   wildcard exclude list (trailing / = folders)\n  --min-mb N  --max-mb N   size limits                  --days N          only files modified in the last N days\n  --threads N              files in parallel (0 = auto)  --buffer MB       block size 1-64 (default 4)\n  --io MODE                auto (default) | buffered | direct\n  --method MODE            auto (default) | pipeline | native\n  --chunks N               workers per big file, 0 = auto\n  --retries N              extra attempts per file (default 3)\n  --wait SECONDS           how long to wait for an unplugged destination to return (default 120)\n  --acl                    copy NTFS permissions and alternate data streams\n  --split                  FAT32 destination: write files over 4 GB as .001/.002 parts\n  --no-flush               do not force data to disk before finishing each file\n  --no-dirtimes            do not copy folder timestamps\n  --recycle                delete: send to the Recycle Bin (Windows)\n  --usn                    EXPERIMENTAL (Windows, NTFS, run as administrator): copy only what the NTFS change journal says changed\n  --full-scan              with --usn: force a full folder walk this time\n  --autotune               adjust the number of parallel files live while copying (with --threads 0)\n  --delta                  big files that already exist in DEST: rewrite only the blocks that changed\n  --delta-min-mb N         delta applies to files at least N MB (default 32)\n  --dry-run                preview only: show what would be copied/deleted, change nothing\n  --vss                    read files that another program holds open from a Volume Shadow Copy (Windows, administrator)\n  --also DEST              copy to a second destination too, afterwards (repeatable; the source is read again from cache)\n  --manifest               write cfmanifest.json (SHA-256 of every file) into DEST after the job\n  --sign KEYFILE           sign the manifest with an ECDSA key (created if missing); implies --manifest\n  --pin KEYID              audit: require the manifest to be signed by this key id\n  --extra                  audit: also list files that are not in the manifest\n  --quiet-secs N           watch: wait N seconds after the last change before syncing (default 5)\n  --mirror                 watch: also delete from DEST what was deleted from SOURCE (needs --yes)\n  --listen ADDR            receive: address to listen on (default 127.0.0.1 = this PC only; use 0.0.0.0 for the LAN)\n  --port N                 receive: TCP port (default 9333)\n  --psk-file FILE          receive/send: the shared secret file (created by 'receive' if missing; copy it to the sender by hand)\n  --fingerprint HEX        send: the receiver's certificate fingerprint, as printed by 'receive'\n  --yes                    confirm destructive modes (sync, delete)\n  --quiet                  no progress output\n\nExit codes: 0 ok, 1 finished with errors, 2 bad usage, 3 cancelled (Ctrl+C)\n";
+	private const string Usage = "\ncfcopy - CopyForge command line\n\n  cfcopy copy   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy move   SOURCE [SOURCE...] --to DEST [options]\n  cfcopy sync   SOURCE_FOLDER      --to DEST [options]   (mirror: deletes extra files in DEST; needs --yes)\n  cfcopy delete SOURCE [SOURCE...] [options]             (needs --yes)\n  cfcopy watch  SOURCE [SOURCE...] --to DEST [options]   (keep DEST in step until Ctrl+C; re-syncs when the stick/share returns)\n  cfcopy receive FOLDER [--listen ADDR] [--port 9333] [--psk-file F]   (accept files from another PC into FOLDER; prints the fingerprint)\n  cfcopy send   SOURCE [SOURCE...] --to HOST[:PORT] --fingerprint HEX [--psk-file F]   (push files to a receiving PC)\n  cfcopy audit  FOLDER [--pin KEYID] [--extra]           (re-hash every file against cfmanifest.json; exit 1 if anything differs)\n  cfcopy compare SOURCE_FOLDER --to DEST                 (list what differs; changes nothing; exit 1 if they differ)\n  cfcopy run    JOBFILE                                  (run the commands in a text file one after another; # = comment)\n  cfcopy bench  [--from DIR] --to DIR [--size-mb 1024]   (speed test of the copy strategies on your drives)\n  cfcopy fakecheck FOLDER [--size-mb N]                  (fake-capacity drive test: fills the free space on the drive holding FOLDER with checkable data, reads it back, deletes it; N limits how many MB to test)\n  cfcopy wipe   PATH [PATH...] [--passes N] --yes         (overwrite with random data, then delete; not reliable on SSD/USB flash)\n  cfcopy history [N] [--search TEXT] [--clear --yes]     (list the last N jobs, default 20; --clear erases the history)\n\nOptions\n  --verify                 re-read and compare every file (bypasses the Windows cache)\n  --verify-algo ALGO       xxh3 (default, fast) | xxh128 | sha256 ; implies --verify\n  --no-clone               do not use ReFS block cloning for same-volume copies\n  --limit-mb N             speed limit in MB per second (uses the CopyForge pipeline)\n  --log FILE               append a per-file CSV log (copied / skipped / FAILED)\n  --after ACTION           shutdown | sleep the PC when the job finishes without errors\n  --no-keep-awake          do not stop Windows sleeping while the job runs\n  --eject                  safely eject a removable destination when the job finishes without errors\n  --safe-names             USB sticks: keep the temp name + rename for every file (slower, no partial file under the real name)\n  --overwrite MODE         different (default) | newer | always | never\n  --include \"a;b\"          wildcard include list        --exclude \"a;b/\"   wildcard exclude list (trailing / = folders)\n  --min-mb N  --max-mb N   size limits                  --days N          only files modified in the last N days\n  --threads N              files in parallel (0 = auto)  --buffer MB       block size 1-64 (default 4)\n  --io MODE                auto (default) | buffered | direct\n  --method MODE            auto (default) | pipeline | native\n  --chunks N               workers per big file, 0 = auto\n  --retries N              extra attempts per file (default 3)\n  --wait SECONDS           how long to wait for an unplugged destination to return (default 120)\n  --acl                    copy NTFS permissions and alternate data streams\n  --split                  FAT32 destination: write files over 4 GB as .001/.002 parts\n  --no-flush               do not force data to disk before finishing each file\n  --no-dirtimes            do not copy folder timestamps\n  --recycle                delete: send to the Recycle Bin (Windows)\n  --usn                    EXPERIMENTAL (Windows, NTFS, run as administrator): copy only what the NTFS change journal says changed\n  --full-scan              with --usn: force a full folder walk this time\n  --autotune               adjust the number of parallel files live while copying (with --threads 0)\n  --delta                  big files that already exist in DEST: rewrite only the blocks that changed\n  --delta-min-mb N         delta applies to files at least N MB (default 32)\n  --dry-run                preview only: show what would be copied/deleted, change nothing\n  --vss                    read files that another program holds open from a Volume Shadow Copy (Windows, administrator)\n  --also DEST              copy to a second destination too, afterwards (repeatable; the source is read again from cache)\n  --manifest               write cfmanifest.json (SHA-256 of every file) into DEST after the job\n  --sign KEYFILE           sign the manifest with an ECDSA key (created if missing); implies --manifest\n  --pin KEYID              audit: require the manifest to be signed by this key id\n  --extra                  audit: also list files that are not in the manifest\n  --quiet-secs N           watch: wait N seconds after the last change before syncing (default 5)\n  --mirror                 watch: also delete from DEST what was deleted from SOURCE (needs --yes)\n  --listen ADDR            receive: address to listen on (default 127.0.0.1 = this PC only; use 0.0.0.0 for the LAN)\n  --port N                 receive: TCP port (default 9333)\n  --psk-file FILE          receive/send: the shared secret file (created by 'receive' if missing; copy it to the sender by hand)\n  --fingerprint HEX        send: the receiver's certificate fingerprint, as printed by 'receive'\n  --yes                    confirm destructive modes (sync, delete)\n  --quiet                  no progress output\n\nExit codes: 0 ok, 1 finished with errors, 2 bad usage, 3 cancelled (Ctrl+C)\n";
 
 	private static readonly CancellationTokenSource Ctl = new CancellationTokenSource();
 
@@ -338,6 +338,8 @@ internal static class Program
 		int num = 9333;
 		int sizeMb = 1024;
 		bool sizeGiven = false;
+		string afterAction = "";
+		int wipePasses = 1;
 		double? num2 = null;
 		try
 		{
@@ -375,6 +377,25 @@ internal static class Program
 					break;
 				case "--eject":
 					o.EjectAfter = true;
+					break;
+				case "--limit-mb":
+					o.LimitMBps = Int();
+					break;
+				case "--log":
+					o.LogPath = Next();
+					break;
+				case "--no-keep-awake":
+					o.KeepAwake = false;
+					break;
+				case "--after":
+					afterAction = Next().ToLowerInvariant();
+					if (afterAction != "shutdown" && afterAction != "sleep")
+					{
+						throw new ArgumentException("--after must be shutdown or sleep");
+					}
+					break;
+				case "--passes":
+					wipePasses = Int();
 					break;
 				case "--search":
 					search = Next();
@@ -563,6 +584,29 @@ internal static class Program
 			{
 			case "history":
 				return ShowHistory(list, search, clearHistory, flag3);
+			case "wipe":
+				if (list.Count == 0)
+				{
+					throw new ArgumentException("wipe needs at least one file or folder");
+				}
+				if (!flag3)
+				{
+					throw new ArgumentException("'wipe' permanently destroys files. Add --yes to confirm.");
+				}
+				{
+					int wipeRc = 0;
+					foreach (string wp in list)
+					{
+						WipeResult wr = SecureWipe.Run(wp, wipePasses, quiet ? null : ((Action<string>)Console.WriteLine), Ctl.Token);
+						Console.WriteLine($"Wiped {wr.Files:N0} files ({wr.Bytes:N0} bytes) in {wp}; {wr.Failed:N0} failed.");
+						if (wr.Failed > 0)
+						{
+							wipeRc = 1;
+						}
+					}
+					Console.WriteLine("Note: on SSDs and USB flash drives, wear levelling can leave old copies. For those, use full-disk encryption or the drive's secure-erase.");
+					return wipeRc;
+				}
 			case "audit":
 				if (list.Count != 1)
 				{
@@ -669,6 +713,11 @@ internal static class Program
 				continue;
 			}
 			break;
+		}
+		if (afterAction.Length > 0 && num3 == 0 && !o.DryRun)
+		{
+			PowerAction.Run(afterAction, out var powerMsg);
+			Console.WriteLine(powerMsg);
 		}
 		return num3;
 	}

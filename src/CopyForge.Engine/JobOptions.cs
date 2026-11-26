@@ -84,6 +84,15 @@ public sealed class JobOptions
 	public int DeltaMinMB { get; set; } = 32;
 
 
+	/// <summary>Speed limit in MB per second (0 = unlimited). Forces the CopyForge pipeline.</summary>
+	public int LimitMBps { get; set; }
+
+	/// <summary>Write a per-file CSV log here (empty = no log).</summary>
+	public string LogPath { get; set; } = "";
+
+	/// <summary>Stop Windows going to sleep while the job runs.</summary>
+	public bool KeepAwake { get; set; } = true;
+
 	public bool DryRun { get; set; }
 
 	public bool UseVss { get; set; }

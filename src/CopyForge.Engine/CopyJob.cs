@@ -145,6 +145,12 @@ public sealed class CopyJob
 
 	private long _failed;
 
+	private Throttle? _throttle;
+
+	private JobLog? _log;
+
+	private CancellationToken _jobCt;
+
 	private long _deleted;
 
 	private long _nNative;
@@ -343,6 +349,24 @@ public sealed class CopyJob
 		Validate();
 		_sw.Start();
 		bool cancelled = false;
+		_jobCt = ct;
+		if (_o.LimitMBps > 0)
+		{
+			_throttle = new Throttle((long)_o.LimitMBps * 1048576L);
+			Info($"Speed limit: {_o.LimitMBps} MB/s (CopyForge pipeline is used so the limit applies).");
+		}
+		KeepAwake? awake = (_o.KeepAwake && !_o.DryRun) ? new KeepAwake() : null;
+		if (!string.IsNullOrWhiteSpace(_o.LogPath) && !_o.DryRun)
+		{
+			try
+			{
+				_log = new JobLog(_o.LogPath);
+			}
+			catch (Exception logEx)
+			{
+				Info("Could not open the log file: " + logEx.Message);
+			}
+		}
 		try
 		{
 			if (_o.Mode != JobMode.Delete)
@@ -363,6 +387,7 @@ public sealed class CopyJob
 		finally
 		{
 			Resume();
+			awake?.Dispose();
 			FreeBuffers();
 			try
 			{
@@ -373,6 +398,8 @@ public sealed class CopyJob
 			}
 		}
 		_sw.Stop();
+		_log?.Dispose();
+		_log = null;
 		if (_o.EjectAfter && !cancelled && !_o.DryRun && _preview == null && _o.Mode != JobMode.Delete && Interlocked.Read(ref _failed) == 0 && _dstVol.Removable)
 		{
 			Info("Ejecting " + (Path.GetPathRoot(_dest) ?? _dest) + " - waiting up to 60 s for Windows, antivirus and indexing to let go of the new files...");
@@ -772,6 +799,7 @@ public sealed class CopyJob
 			break;
 		case Decision.SkipIdentical:
 			_skipped++;
+			_log?.Row("skipped-identical", f.FullName, dst, f.Length);
 			if (_o.WriteManifest)
 			{
 				_identical.Enqueue(dst);
@@ -783,6 +811,7 @@ public sealed class CopyJob
 			break;
 		default:
 			_skipped++;
+			_log?.Row("skipped", f.FullName, dst, f.Length);
 			break;
 		}
 	}
@@ -1009,6 +1038,7 @@ public sealed class CopyJob
 				File.Move(it.Src, it.Dst, overwrite: true);
 				Interlocked.Add(ref _bytesDone, it.Size);
 				Interlocked.Increment(ref _filesDone);
+				_log?.Row("moved", it.Src, it.Dst, it.Size);
 				return;
 			}
 			FileItem cur = it;
@@ -1058,6 +1088,7 @@ public sealed class CopyJob
 				attempt++;
 			}
 			Interlocked.Increment(ref _filesDone);
+			_log?.Row("copied", it.Src, it.Dst, it.Size);
 			if (_o.Mode == JobMode.Move)
 			{
 				DeleteFile(it.Src, recycle: false);
@@ -1071,6 +1102,7 @@ public sealed class CopyJob
 		{
 			Interlocked.Increment(ref _failed);
 			_failedPairs.Enqueue(new FilePair(it.Src, it.Dst));
+			_log?.Row("FAILED", it.Src, it.Dst, it.Size, Explain(ex4, it));
 			Report(it.Src + ": " + Explain(ex4, it));
 		}
 	}
@@ -1497,6 +1529,7 @@ public sealed class CopyJob
 
 	private void AddBytes(long n)
 	{
+		_throttle?.Wait(n, _jobCt);
 		Interlocked.Add(ref _bytesDone, n);
 	}
 
@@ -1515,7 +1548,7 @@ public sealed class CopyJob
 		bool isWindows = Native.IsWindows;
 		bool flag = NeedsSplit(it.Size);
 		bool flag2 = !_srcVol.Network && !_dstVol.Network;
-		bool flag3 = isWindows && !flag && _o.Method != CopyMethod.Pipeline && (_o.Method == CopyMethod.Native || SameVolume(it.Src, it.Dst));
+		bool flag3 = isWindows && !flag && _o.LimitMBps <= 0 && _o.Method != CopyMethod.Pipeline && (_o.Method == CopyMethod.Native || SameVolume(it.Src, it.Dst));
 		bool flag4 = isWindows;
 		if (flag4)
 		{

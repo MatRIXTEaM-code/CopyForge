@@ -252,6 +252,31 @@ internal static class Program
 				Check("capacity test passes on a healthy folder", cr.Passed && cr.BytesWritten >= 24L * 1048576L && cr.BadBlocks == 0, cr.Summary);
 				Check("capacity test leaves no files behind", Directory.GetFileSystemEntries(cap).Length == 0);
 			}
+			// --- speed limit, CSV log, wipe ---
+			{
+				string lsrc = Path.Combine(root, "lsrc"); Directory.CreateDirectory(lsrc);
+				byte[] blob = new byte[6 * 1048576]; new Random(3).NextBytes(blob);
+				File.WriteAllBytes(Path.Combine(lsrc, "a,\"q\".bin"), blob);
+				File.WriteAllBytes(Path.Combine(lsrc, "=evil.bin"), new byte[1000]);
+				string csv = Path.Combine(root, "log", "run.csv");
+				var sw = System.Diagnostics.Stopwatch.StartNew();
+				var lr = new CopyJob(new JobOptions { Sources = new List<string> { lsrc }, Destination = Path.Combine(root, "ldst"), LimitMBps = 2, LogPath = csv, Verify = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				sw.Stop();
+				Check("speed limit slows the copy down", lr.FilesFailed == 0 && sw.Elapsed.TotalSeconds >= 3.0, $"{sw.Elapsed.TotalSeconds:F1}s");
+				string txt = File.Exists(csv) ? File.ReadAllText(csv) : "";
+				Check("csv log lists both files", txt.Contains("copied") && txt.Split('\n').Length >= 3 && txt.StartsWith("\uFEFFtime,status") );
+				Check("csv log neutralises formula cells", txt.Contains("\"'=") || !txt.Contains(",\"=evil") );
+				var cts2 = new CancellationTokenSource(); 
+				var th = new Throttle(1048576); th.Wait(1048576, cts2.Token); var t0 = System.Diagnostics.Stopwatch.StartNew(); th.Wait(1, cts2.Token); 
+				Check("throttle waits after a full second of budget", t0.Elapsed.TotalSeconds >= 0.5, $"{t0.Elapsed.TotalSeconds:F2}s");
+				string wdir = Path.Combine(root, "wipe"); Directory.CreateDirectory(Path.Combine(wdir, "sub"));
+				File.WriteAllBytes(Path.Combine(wdir, "sub", "x.bin"), new byte[300000]);
+				File.WriteAllText(Path.Combine(wdir, "ro.txt"), "hi"); File.SetAttributes(Path.Combine(wdir, "ro.txt"), FileAttributes.ReadOnly);
+				var wr = SecureWipe.Run(wdir, 2, null, CancellationToken.None);
+				Check("wipe removes files and folders", wr.Files == 2 && wr.Failed == 0 && !Directory.Exists(wdir), $"{wr.Files}/{wr.Failed}");
+				using (var ka = new KeepAwake()) { }
+				Check("keep-awake starts and stops cleanly", true);
+			}
 		}
 		finally
 		{

@@ -43,6 +43,12 @@ internal sealed class AppSettings
 
 	public int WaitSeconds { get; set; } = 120;
 
+	public int LimitMBps { get; set; }
+
+	public bool WriteLog { get; set; }
+
+	public bool ShutdownAfter { get; set; }
+
 
 	public bool Flush { get; set; } = true;
 
@@ -67,6 +73,8 @@ internal sealed class AppSettings
 	public bool AutoTune { get; set; }
 
 	public static string KeyPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CopyForge", "manifest-key.pem");
+
+	public static string LogPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CopyForge", "copylog.csv");
 
 	public static string FilePath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CopyForge", "settings.json");
 

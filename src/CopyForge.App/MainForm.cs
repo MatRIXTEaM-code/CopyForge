@@ -957,6 +957,8 @@ public sealed class MainForm : Form
 		jobOptions.BlockClone = _cfg.BlockClone;
 		jobOptions.EjectAfter = _cfg.EjectAfter && CurrentMode != JobMode.Delete;
 		jobOptions.DirectWriteRemovable = _cfg.DirectWriteRemovable;
+		jobOptions.LimitMBps = _cfg.LimitMBps;
+		jobOptions.LogPath = (_cfg.WriteLog ? AppSettings.LogPath : "");
 		jobOptions.Include = _fInc.Text;
 		jobOptions.Exclude = _fExc.Text;
 		jobOptions.MinSizeBytes = _stMin.Value * 1024 * 1024;
@@ -1256,6 +1258,11 @@ public sealed class MainForm : Form
 			{
 				Result = jobResult
 			};
+			if (_cfg.ShutdownAfter && opts.Mode != JobMode.Delete && !jobResult.Cancelled && jobResult.FilesFailed == 0 && !opts.DryRun)
+			{
+				PowerAction.Run("shutdown", out var powerMsg);
+				_log.Add(powerMsg, Theme.Warn);
+			}
 			IReadOnlyList<FilePair> failedPairs = jobResult.FailedPairs;
 			flag = failedPairs != null && failedPairs.Count > 0;
 			if (flag)

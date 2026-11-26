@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.4.0
+- Windows is kept awake while a job runs (can be turned off in the CLI with `--no-keep-awake`).
+- Speed limit: Settings "Speed limit" / `--limit-mb N` (uses the CopyForge pipeline so the limit applies).
+- Per-file CSV log: Settings checkbox (saved in your AppData folder) / `--log FILE`.
+- Shut down or sleep the PC when a job finishes without errors: Settings checkbox / `--after shutdown|sleep` (shutdown gives 60 s to cancel with `shutdown /a`).
+- New `cfcopy wipe PATH --yes [--passes N]` secure overwrite-and-delete (not reliable on SSD / USB flash).
+
 ## 3.3.12
 - Settings: "Sign the manifest" label aligned with the other checkboxes.
 
