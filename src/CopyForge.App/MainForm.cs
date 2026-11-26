@@ -830,6 +830,12 @@ public sealed class MainForm : Form
 				SaveSettings();
 			});
 		}
+		menu.Items.Add("Recent LocalSend transfers", null, delegate
+		{
+			List<LsHistoryEntry> hist = LsHistory.Read(12);
+			ShowMain();
+			HudDialog.Notify(this, "LOCALSEND HISTORY", (hist.Count == 0) ? "No transfers yet." : string.Join("\n", hist.Select(LsHistory.Line)));
+		});
 		menu.Items.Add("LocalSend...", null, delegate
 		{
 			ShowMain();
@@ -1710,6 +1716,17 @@ public sealed class MainForm : Form
 					PowerAction.RunHook(hookPath, hookCode, out hookMsg);
 				});
 				_log.Add(hookMsg, Theme.Dim);
+			}
+			if (_cfg.OnError.Trim().Length > 0 && !opts.DryRun && (jobResult.Cancelled || jobResult.FilesFailed > 0))
+			{
+				string errPath = _cfg.OnError.Trim();
+				int errCode = (jobResult.Cancelled ? 3 : 1);
+				string errMsg = "";
+				await Task.Run(delegate
+				{
+					PowerAction.RunHook(errPath, errCode, out errMsg);
+				});
+				_log.Add(errMsg.Replace("--on-finish", "--on-error"), Theme.Dim);
 			}
 			if (_cfg.ShutdownAfter && opts.Mode != JobMode.Delete && !jobResult.Cancelled && jobResult.FilesFailed == 0 && !opts.DryRun)
 			{

@@ -706,6 +706,7 @@ public sealed class LocalSendReceiver
 		try
 		{
 			ok = _accept(senderAlias, ipKey, items.Count, total);
+			LsHistory.Add(new LsHistoryEntry { Direction = "received", Device = senderAlias, Address = ipKey, Files = items.Count, Bytes = total, Ok = ok, Message = ok ? "" : "declined" });
 		}
 		catch
 		{

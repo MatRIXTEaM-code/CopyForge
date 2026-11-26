@@ -159,6 +159,11 @@ internal sealed class SettingsForm : Form
 		Hint = "C:\\scripts\\after-copy.cmd"
 	};
 
+	private readonly HudField _fErrHook = new HudField
+	{
+		Hint = "run only when a job ends with errors: C:\\scripts\\on-error.cmd"
+	};
+
 	private readonly HudCheck _chkManifest = new HudCheck
 	{
 		Text = "Write a SHA-256 checksum manifest (cfmanifest.json) after each copy"
@@ -232,7 +237,7 @@ internal sealed class SettingsForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _bLocalSend, _chkPlug, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
+		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _bLocalSend, _chkPlug, _chkTop, _lblHook, _fHook, _fErrHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
 		_lblMethod.SetBounds(20, 42, 300, 14);
 		_segMethod.SetBounds(20, 60, 500, 28);
 		_stChunks.SetBounds(20, 104, 300, 26);
@@ -258,6 +263,7 @@ internal sealed class SettingsForm : Form
 		_chkTop.SetBounds(560, 342, 500, 22);
 		_lblHook.SetBounds(560, 374, 500, 14);
 		_fHook.SetBounds(560, 392, 500, 28);
+		_fErrHook.SetBounds(560, 458, 500, 28);
 		_chkShell.SetBounds(20, 426, 480, 22);
 		_chkPlug.SetBounds(560, 428, 500, 22);
 		_lblInfo.SetBounds(20, 456, 1040, 46);
@@ -286,6 +292,7 @@ internal sealed class SettingsForm : Form
 		_chkPlug.Checked = cfg.CheckOnPlug;
 		_chkTop.Checked = cfg.AlwaysOnTop;
 		_fHook.Text = cfg.OnFinish;
+		_fErrHook.Text = cfg.OnError;
 		_chkManifest.Checked = cfg.Manifest;
 		_chkSign.Checked = cfg.SignManifest;
 		_chkDelta.Checked = cfg.Delta;
@@ -405,6 +412,7 @@ internal sealed class SettingsForm : Form
 			_chkPlug.Checked = false;
 			_chkTop.Checked = false;
 			_fHook.Text = "";
+			_fErrHook.Text = "";
 			HudCheck chkManifest = _chkManifest;
 			HudCheck chkSign = _chkSign;
 			HudCheck chkDelta = _chkDelta;
@@ -507,6 +515,13 @@ internal sealed class SettingsForm : Form
 			if (!_loading)
 			{
 				_cfg.AlwaysOnTop = _chkTop.Checked;
+			}
+		};
+		_fErrHook.Inner.TextChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.OnError = _fErrHook.Text.Trim();
 			}
 		};
 		_fHook.Inner.TextChanged += delegate

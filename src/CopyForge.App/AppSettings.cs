@@ -75,6 +75,8 @@ internal sealed class AppSettings
 
 	public string OnFinish { get; set; } = "";
 
+	public string OnError { get; set; } = "";
+
 	public bool AlwaysOnTop { get; set; }
 
 

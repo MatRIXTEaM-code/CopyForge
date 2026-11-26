@@ -1,0 +1,1 @@
+{"Started":"2026-11-26T20:14:18.943859+00:00","Source":"cli","Mode":"Copy","Sources":["/tmp/t/src"],"Destination":"/tmp/t/dst","ExtraDestinations":[],"Verify":false,"VerifyAlgo":"","Finished":true,"Cancelled":false,"FilesProcessed":2,"FilesSkipped":0,"FilesDeleted":0,"FilesFailed":0,"Bytes":6,"ElapsedSeconds":0.0483659,"Problem":"","Errors":[],"Outcome":"OK"}

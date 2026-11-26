@@ -439,6 +439,11 @@ internal static class Program
 			{
 			}
 		}
+		{
+			System.Collections.Generic.List<CopyForge.Engine.Net.LsHistoryEntry> lh = CopyForge.Engine.Net.LsHistory.Read(50);
+			Check("LocalSend history records a sent transfer", lh.Any((CopyForge.Engine.Net.LsHistoryEntry e) => e.Direction == "sent" && e.Ok));
+			Check("LocalSend history records a received transfer", lh.Any((CopyForge.Engine.Net.LsHistoryEntry e) => e.Direction == "received" && e.Ok));
+		}
 		Console.WriteLine();
 		Console.WriteLine((_fail == 0) ? $"ALL PASSED ({_pass} checks)" : $"FAILED: {_fail} of {_pass + _fail} checks");
 		return (_fail == 0) ? 0 : 1;

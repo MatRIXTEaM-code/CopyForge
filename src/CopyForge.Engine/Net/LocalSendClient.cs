@@ -152,6 +152,13 @@ public static class LocalSendClient
 
 	public static async Task<LsSendResult> SendAsync(LsPeer peer, string myAlias, string pin, IEnumerable<string> sources, Action<string>? log, Action<long, long>? progress, CancellationToken ct)
 	{
+		LsSendResult r = await SendCoreAsync(peer, myAlias, pin, sources, log, progress, ct).ConfigureAwait(false);
+		LsHistory.Add(new LsHistoryEntry { Direction = "sent", Device = peer.Alias, Address = peer.Ip, Files = r.Files, Bytes = r.Bytes, Ok = r.Ok, Message = r.Message });
+		return r;
+	}
+
+	private static async Task<LsSendResult> SendCoreAsync(LsPeer peer, string myAlias, string pin, IEnumerable<string> sources, Action<string>? log, Action<long, long>? progress, CancellationToken ct)
+	{
 		List<Entry> files = Collect(sources);
 		if (files.Count == 0)
 		{

@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.15.0
+- `--on-error SCRIPT` (and a Settings field): run a script only when a job ends with errors or is cancelled; exit code in CF_EXITCODE.
+- `cfcopy recheck [N]`: compare the Nth most recent job's sources with its destination(s) again (changes nothing; exit 1 if anything is missing or different). Not available for move or delete jobs.
+- LocalSend history: every send and every accepted/declined receive is logged. `cfcopy lshistory [N] [--search DEVICE]`, and a tray item "Recent LocalSend transfers".
+
 ## 3.14.0
 - LocalSend window: editable "trusted device names" list (separate with ;) so you can review or remove trusted devices.
 
