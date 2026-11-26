@@ -1,0 +1,29 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - name: Test
+        run: dotnet run --project tests/CopyForge.SmokeTest -c Release
+      - name: Publish
+        run: |
+          dotnet publish src/CopyForge.App -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o out
+          dotnet publish src/CopyForge.Cli -c Release -r win-x64 --self-contained false -p:PublishSingleFile=true -p:DebugType=None -o out
+          cd out
+          Get-FileHash CopyForge.exe,cfcopy.exe -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Out-File SHA256SUMS.txt -Encoding ascii
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            out/CopyForge.exe
+            out/cfcopy.exe
+            out/SHA256SUMS.txt
+          generate_release_notes: true
