@@ -130,6 +130,11 @@ internal sealed class SettingsForm : Form
 		Text = "Check / repair a folder..."
 	};
 
+	private readonly HudCheck _chkPlug = new HudCheck
+	{
+		Text = "Check a plugged-in drive against its repair data (if it has any)"
+	};
+
 	private readonly HudCheck _chkTop = new HudCheck
 	{
 		Text = "Keep the CopyForge window on top"
@@ -220,7 +225,7 @@ internal sealed class SettingsForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
+		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _chkPlug, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
 		_lblMethod.SetBounds(20, 42, 300, 14);
 		_segMethod.SetBounds(20, 60, 500, 28);
 		_stChunks.SetBounds(20, 104, 300, 26);
@@ -247,7 +252,8 @@ internal sealed class SettingsForm : Form
 		_lblHook.SetBounds(560, 374, 500, 14);
 		_fHook.SetBounds(560, 392, 500, 28);
 		_chkShell.SetBounds(20, 426, 480, 22);
-		_lblInfo.SetBounds(20, 450, 1040, 50);
+		_chkPlug.SetBounds(560, 428, 500, 22);
+		_lblInfo.SetBounds(20, 456, 1040, 46);
 		_lblInfo.Text = "AUTO uses Windows' own copy (instant on ReFS / offload-capable storage) when source and destination are on the same drive, and the CopyForge pipeline otherwise. Block cloning is tried first on same-volume ReFS copies. Workers per big file: AUTO only splits very large files between fast SSDs. Settings file: " + AppSettings.FilePath;
 		_bReset.SetBounds(20, 510, 110, 34);
 		_bAudit.SetBounds(146, 510, 170, 34);
@@ -269,6 +275,7 @@ internal sealed class SettingsForm : Form
 		_chkVersions.Checked = cfg.KeepVersions;
 		_stResume.Value = cfg.ResumeMB;
 		_stParity.Value = cfg.ParityPct;
+		_chkPlug.Checked = cfg.CheckOnPlug;
 		_chkTop.Checked = cfg.AlwaysOnTop;
 		_fHook.Text = cfg.OnFinish;
 		_chkManifest.Checked = cfg.Manifest;
@@ -387,6 +394,7 @@ internal sealed class SettingsForm : Form
 			_chkVersions.Checked = false;
 			_stResume.Value = 256L;
 			_stParity.Value = 0L;
+			_chkPlug.Checked = false;
 			_chkTop.Checked = false;
 			_fHook.Text = "";
 			HudCheck chkManifest = _chkManifest;
@@ -454,6 +462,13 @@ internal sealed class SettingsForm : Form
 			if (!_loading)
 			{
 				_cfg.KeepVersions = _chkVersions.Checked;
+			}
+		};
+		_chkPlug.CheckedChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.CheckOnPlug = _chkPlug.Checked;
 			}
 		};
 		_stParity.ValueChanged += delegate

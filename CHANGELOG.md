@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.10.0
+- `cfcopy localsend FOLDER`: receive files from the LocalSend app (protocol v2, HTTPS, multicast discovery). Asks before accepting each transfer; `--pin` makes senders enter a PIN and `--auto-accept` (needs a PIN) skips the question. File names are cleaned, nothing is overwritten, only the accepted sender can upload, SHA-256 is checked when the sender gives it.
+- Tray icon (always present while CopyForge runs): save the current job as a preset, run or remove presets from its menu. Running a preset asks the same confirmation as a normal job.
+- Settings: "Check a plugged-in drive against its repair data" - when a drive with a `.cf_parity` folder is plugged in, CopyForge checks it in the background and shows a notification.
+
 ## 3.9.0
 - Settings: "Repair data after copy" percentage (copy, move and sync write repair data to every destination after a clean job) and a "Check / repair a folder..." button.
 - `cfcopy schedule` can now run `protect` and `repair` (for example a weekly `repair FOLDER --check`).

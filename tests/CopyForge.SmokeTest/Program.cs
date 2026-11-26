@@ -366,6 +366,46 @@ internal static class Program
 					new CopyJob(new JobOptions { Sources = new List<string> { psrc + Path.DirectorySeparatorChar }, Destination = pd, Mode = JobMode.Sync }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
 					Check("sync leaves the repair data folder alone", Directory.Exists(Path.Combine(pd, ".cf_parity")));
 				}
+				{
+					string lsdir = Path.Combine(root, "ls"); Directory.CreateDirectory(lsdir);
+					int asked = 0; bool allow = true;
+					var rcv = new LocalSendReceiver(lsdir, "Test PC", "1234", (al, ip, n, b) => { asked++; return allow; }, System.Net.IPAddress.Loopback, 0, Path.Combine(root, "ls.pfx"), false);
+					rcv.Start();
+					using var lcts = new CancellationTokenSource();
+					var lrun = rcv.RunAsync(lcts.Token);
+					using var http = new System.Net.Http.HttpClient(new System.Net.Http.HttpClientHandler { ServerCertificateCustomValidationCallback = (_, _, _, _) => true });
+					string baseUrl = "https://127.0.0.1:" + rcv.Port + "/api/localsend/v2/";
+					string LsPost(string u, string json) { var r = http.PostAsync(baseUrl + u, new System.Net.Http.StringContent(json, System.Text.Encoding.UTF8, "application/json")).GetAwaiter().GetResult(); return (int)r.StatusCode + "|" + r.Content.ReadAsStringAsync().GetAwaiter().GetResult(); }
+					byte[] data = new byte[300_000]; new Random(3).NextBytes(data);
+					string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)).ToLowerInvariant();
+					string files = "{\"info\":{\"alias\":\"Phone\"},\"files\":{\"f1\":{\"id\":\"f1\",\"fileName\":\"..\\\\..\\\\evil:name.bin\",\"size\":300000,\"fileType\":\"x\",\"sha256\":\"" + sha + "\"},\"f2\":{\"id\":\"f2\",\"fileName\":\"sub/ok.txt\",\"size\":5,\"fileType\":\"x\",\"sha256\":\"" + new string('0', 64) + "\"},}}";
+					Check("localsend register answers with our info", LsPost("register", "{}").StartsWith("200|") && LsPost("register", "{}").Contains(rcv.Fingerprint));
+					Check("localsend refuses a wrong PIN", LsPost("prepare-upload?pin=0000", files).StartsWith("401|") && asked == 0);
+					allow = false;
+					Check("localsend declined transfer gets 403", LsPost("prepare-upload?pin=1234", files).StartsWith("403|") && asked == 1);
+					allow = true;
+					string prep = LsPost("prepare-upload?pin=1234", files);
+					Check("localsend accepted transfer gets a session", prep.StartsWith("200|"), prep);
+					var pd = System.Text.Json.JsonDocument.Parse(prep.Substring(4)).RootElement;
+					string sess = pd.GetProperty("sessionId").GetString()!; string t1 = pd.GetProperty("files").GetProperty("f1").GetString()!; string t2 = pd.GetProperty("files").GetProperty("f2").GetString()!;
+					int Up(string fid, string tok, byte[] d, string sid = null) { var r = http.PostAsync(baseUrl + "upload?sessionId=" + (sid ?? sess) + "&fileId=" + fid + "&token=" + tok, new System.Net.Http.ByteArrayContent(d)).GetAwaiter().GetResult(); return (int)r.StatusCode; }
+					Check("localsend upload with a wrong token is refused", Up("f1", "nope", data) == 403);
+					Check("localsend upload is stored and checked", Up("f1", t1, data) == 200);
+					Check("localsend bad checksum is discarded (422)", Up("f2", t2, System.Text.Encoding.ASCII.GetBytes("hello")) == 422 && !File.Exists(Path.Combine(lsdir, "sub", "ok.txt")));
+					var got = Directory.GetFiles(lsdir, "*", SearchOption.AllDirectories).Where(f => !f.EndsWith(".pfx")).ToArray();
+					Check("localsend path tricks stay inside the folder", got.Length == 1 && Path.GetFullPath(got[0]).StartsWith(Path.GetFullPath(lsdir)) && File.ReadAllBytes(got[0]).SequenceEqual(data), string.Join(",", got));
+					LsPost("cancel?sessionId=" + sess, "{}");
+					string prep2 = LsPost("prepare-upload?pin=1234", "{\"info\":{\"alias\":\"P\"},\"files\":{\"a\":{\"id\":\"a\",\"fileName\":\"" + Path.GetFileName(got[0]) + "\",\"size\":3,\"fileType\":\"x\"}}}");
+					var pd2 = System.Text.Json.JsonDocument.Parse(prep2.Substring(4)).RootElement;
+					Up("a", pd2.GetProperty("files").GetProperty("a").GetString()!, new byte[3], pd2.GetProperty("sessionId").GetString());
+					Check("localsend never overwrites an existing file", File.ReadAllBytes(got[0]).SequenceEqual(data) && Directory.GetFiles(lsdir, "*", SearchOption.AllDirectories).Count(f => !f.EndsWith(".pfx")) == 2);
+					lcts.Cancel();
+				}
+				{
+					var jo = new JobOptions { Sources = new List<string> { "C:\\a", "C:\\b" }, Destination = "D:\\x", ExtraDestinations = new List<string> { "E:\\y" }, Mode = JobMode.Sync, Verify = true, VerifyAlgo = VerifyAlgo.Blake3, KeepVersions = true, LimitMBps = 50, Include = "*.doc" };
+					var back = System.Text.Json.JsonSerializer.Deserialize<JobOptions>(System.Text.Json.JsonSerializer.Serialize(jo))!;
+					Check("a job survives being saved as a preset (JSON)", back.Mode == JobMode.Sync && back.VerifyAlgo == VerifyAlgo.Blake3 && back.KeepVersions && back.LimitMBps == 50 && back.Sources.Count == 2 && back.ExtraDestinations[0] == "E:\\y" && back.Include == "*.doc" && back.Destination == "D:\\x");
+				}
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}

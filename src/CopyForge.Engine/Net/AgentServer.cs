@@ -64,7 +64,7 @@ public sealed class AgentServer
 		_certHash = SHA256.HashData(_cert.RawData);
 	}
 
-	private static X509Certificate2 LoadOrCreateCert(string pfx)
+	internal static X509Certificate2 LoadOrCreateCert(string pfx)
 	{
 		if (File.Exists(pfx))
 		{

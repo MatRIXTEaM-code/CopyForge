@@ -660,21 +660,161 @@ public sealed class MainForm : Form
 
 	private NotifyIcon? _tray;
 
-	/// <summary>Windows balloon / toast when a job ends while CopyForge is minimised or in the background.</summary>
-	private void NotifyFinished(string title, string text, bool bad)
+	private CancellationTokenSource _plugCts = new CancellationTokenSource();
+
+	private NotifyIcon EnsureTray()
 	{
+		if (_tray == null)
+		{
+			ContextMenuStrip menu = new ContextMenuStrip();
+			menu.Opening += delegate
+			{
+				BuildTrayMenu(menu);
+			};
+			_tray = new NotifyIcon
+			{
+				Icon = (base.Icon ?? SystemIcons.Application),
+				Text = "CopyForge",
+				ContextMenuStrip = menu
+			};
+			_tray.DoubleClick += delegate
+			{
+				ShowMain();
+			};
+		}
+		return _tray;
+	}
+
+	private void ShowMain()
+	{
+		if (base.WindowState == FormWindowState.Minimized)
+		{
+			base.WindowState = FormWindowState.Normal;
+		}
+		Show();
+		Activate();
+	}
+
+	private void BuildTrayMenu(ContextMenuStrip menu)
+	{
+		menu.Items.Clear();
+		menu.Items.Add("Show CopyForge", null, delegate
+		{
+			ShowMain();
+		});
+		menu.Items.Add("Save the current job as a preset", null, delegate
+		{
+			SaveCurrentAsPreset();
+		});
+		List<Preset> presets = Presets.Load();
+		ToolStripMenuItem run = new ToolStripMenuItem("Run preset") { Enabled = presets.Count > 0 && _job == null };
+		ToolStripMenuItem remove = new ToolStripMenuItem("Remove preset") { Enabled = presets.Count > 0 };
+		foreach (Preset p in presets)
+		{
+			Preset pp = p;
+			run.DropDownItems.Add(pp.Name, null, async delegate
+			{
+				await RunPresetAsync(pp);
+			});
+			remove.DropDownItems.Add(pp.Name, null, delegate
+			{
+				Presets.Remove(pp.Name);
+			});
+		}
+		menu.Items.Add(run);
+		menu.Items.Add(remove);
+	}
+
+	private void SaveCurrentAsPreset()
+	{
+		JobOptions o = BuildOptions();
+		if (!Presets.Add(QueueTitle(o), o, out string why))
+		{
+			ShowMain();
+			HudDialog.Notify(this, "PRESET", why);
+			return;
+		}
+		_log.Add("PRESET SAVED  -  " + QueueTitle(o), Theme.Accent);
+		NotifyFinished("CopyForge - preset saved", QueueTitle(o), bad: false, force: true);
+	}
+
+	private async Task RunPresetAsync(Preset p)
+	{
+		if (_job != null)
+		{
+			return;
+		}
+		ShowMain();
+		JobOptions o = p.Options.Clone();
+		if (!await ConfirmAsync(o))
+		{
+			return;
+		}
+		await StartAsync(o);
+	}
+
+	protected override void WndProc(ref Message m)
+	{
+		base.WndProc(ref m);
+		if (m.Msg == 0x0219 && _cfg.CheckOnPlug && (long)m.WParam == 0x8000)
+		{
+			try
+			{
+				// DEV_BROADCAST_HDR: size, devicetype (2 = volume), reserved; then unit mask
+				if (m.LParam != IntPtr.Zero && Marshal.ReadInt32(m.LParam, 4) == 2)
+				{
+					int mask = Marshal.ReadInt32(m.LParam, 12);
+					for (int i = 0; i < 26; i++)
+					{
+						if ((mask & (1 << i)) != 0)
+						{
+							string root = (char)(65 + i) + ":\\";
+							_ = CheckPluggedAsync(root);
+						}
+					}
+				}
+			}
+			catch
+			{
+			}
+		}
+	}
+
+	private async Task CheckPluggedAsync(string root)
+	{
+		CancellationToken token = _plugCts.Token;
 		try
 		{
-			if (base.WindowState != FormWindowState.Minimized && Form.ActiveForm == this)
+			await Task.Delay(3000, token);
+			if (!Directory.Exists(Path.Combine(root, Parity.DirName)))
 			{
 				return;
 			}
-			_tray ??= new NotifyIcon
+			ParityResult r = await Task.Run(() => Parity.Repair(root, checkOnly: true, null, token));
+			if (r.Damaged == 0 && r.Unrepairable == 0)
 			{
-				Icon = (base.Icon ?? SystemIcons.Application),
-				Text = "CopyForge"
-			};
-			_tray.Visible = true;
+				NotifyFinished("CopyForge - drive " + root.TrimEnd('\\') + " checked", $"{r.Files - r.NoParity:N0} files match their repair data.", bad: false, force: true);
+			}
+			else
+			{
+				NotifyFinished("CopyForge - drive " + root.TrimEnd('\\') + " has damaged files", $"{r.Damaged:N0} damaged. Open Settings > Check / repair a folder and pick {root}", bad: true, force: true);
+			}
+		}
+		catch
+		{
+		}
+	}
+
+	/// <summary>Windows balloon / toast when a job ends while CopyForge is minimised or in the background.</summary>
+	private void NotifyFinished(string title, string text, bool bad, bool force = false)
+	{
+		try
+		{
+			if (!force && base.WindowState != FormWindowState.Minimized && Form.ActiveForm == this)
+			{
+				return;
+			}
+			EnsureTray().Visible = true;
 			_tray.BalloonTipTitle = title;
 			_tray.BalloonTipText = text;
 			_tray.BalloonTipIcon = (bad ? ToolTipIcon.Warning : ToolTipIcon.Info);
@@ -690,6 +830,7 @@ public sealed class MainForm : Form
 		if (disposing)
 		{
 			_anim.Dispose();
+			_plugCts.Cancel();
 			_tray?.Dispose();
 			_bgCache?.Dispose();
 			_cts?.Dispose();
@@ -827,6 +968,10 @@ public sealed class MainForm : Form
 			{
 				_fDst.Text = (Directory.Exists(array[0]) ? array[0] : (Path.GetDirectoryName(array[0]) ?? ""));
 			}
+		};
+		base.Shown += delegate
+		{
+			EnsureTray().Visible = true;
 		};
 		base.FormClosing += delegate(object? _, FormClosingEventArgs e)
 		{

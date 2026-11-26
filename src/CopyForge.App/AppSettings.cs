@@ -53,6 +53,8 @@ internal sealed class AppSettings
 
 	public bool KeepVersions { get; set; }
 
+	public bool CheckOnPlug { get; set; }
+
 	public int ParityPct { get; set; }
 
 	public int ResumeMB { get; set; } = 256;
