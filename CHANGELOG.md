@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.4.1
+- Verify can also compare files skipped as "identical" byte for byte and copy them again if they differ: Settings checkbox / `--verify-skipped`. Catches silent corruption that same-size-and-time checks miss.
+
 ## 3.4.0
 - Windows is kept awake while a job runs (can be turned off in the CLI with `--no-keep-awake`).
 - Speed limit: Settings "Speed limit" / `--limit-mb N` (uses the CopyForge pipeline so the limit applies).

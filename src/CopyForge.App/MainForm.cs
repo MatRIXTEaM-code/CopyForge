@@ -958,6 +958,7 @@ public sealed class MainForm : Form
 		jobOptions.EjectAfter = _cfg.EjectAfter && CurrentMode != JobMode.Delete;
 		jobOptions.DirectWriteRemovable = _cfg.DirectWriteRemovable;
 		jobOptions.LimitMBps = _cfg.LimitMBps;
+		jobOptions.VerifySkipped = _cfg.VerifySkipped;
 		jobOptions.LogPath = (_cfg.WriteLog ? AppSettings.LogPath : "");
 		jobOptions.Include = _fInc.Text;
 		jobOptions.Exclude = _fExc.Text;

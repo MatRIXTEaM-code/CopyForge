@@ -93,6 +93,9 @@ public sealed class JobOptions
 	/// <summary>Stop Windows going to sleep while the job runs.</summary>
 	public bool KeepAwake { get; set; } = true;
 
+	/// <summary>With Verify on: files skipped as "identical" (same size and time) are also compared byte for byte; a difference makes them copy again.</summary>
+	public bool VerifySkipped { get; set; }
+
 	public bool DryRun { get; set; }
 
 	public bool UseVss { get; set; }

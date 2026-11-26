@@ -274,6 +274,16 @@ internal static class Program
 				File.WriteAllText(Path.Combine(wdir, "ro.txt"), "hi"); File.SetAttributes(Path.Combine(wdir, "ro.txt"), FileAttributes.ReadOnly);
 				var wr = SecureWipe.Run(wdir, 2, null, CancellationToken.None);
 				Check("wipe removes files and folders", wr.Files == 2 && wr.Failed == 0 && !Directory.Exists(wdir), $"{wr.Files}/{wr.Failed}");
+				// verify skipped files: corrupt a destination file keeping size+mtime, expect it to be re-copied
+				string vs = Path.Combine(root, "vs-src"); string vd = Path.Combine(root, "vs-dst"); Directory.CreateDirectory(vs);
+				File.WriteAllBytes(Path.Combine(vs, "f.bin"), new byte[100000].Select((b, i) => (byte)(i * 7)).ToArray());
+				new CopyJob(new JobOptions { Sources = new List<string> { vs }, Destination = vd }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				string df = Directory.GetFiles(vd, "f.bin", SearchOption.AllDirectories).First();
+				DateTime mt = File.GetLastWriteTimeUtc(df); byte[] cur = File.ReadAllBytes(df); cur[500] ^= 0xFF; File.WriteAllBytes(df, cur); File.SetLastWriteTimeUtc(df, mt);
+				var plain = new CopyJob(new JobOptions { Sources = new List<string> { vs }, Destination = vd }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				Check("without verify-skipped a silent corruption is missed", plain.FilesProcessed == 0);
+				var vsr = new CopyJob(new JobOptions { Sources = new List<string> { vs }, Destination = vd, Verify = true, VerifySkipped = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				Check("verify-skipped finds and repairs it", vsr.FilesProcessed == 1 && File.ReadAllBytes(df).SequenceEqual(File.ReadAllBytes(Directory.GetFiles(vs, "f.bin", SearchOption.AllDirectories).First())));
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}

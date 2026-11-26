@@ -398,6 +398,10 @@ public sealed class CopyJob
 			}
 		}
 		_sw.Stop();
+		if (_skipVerified + _skipMismatch > 0)
+		{
+			Info($"Skipped-file check: {_skipVerified:N0} identical files confirmed byte for byte, {_skipMismatch:N0} differed and were copied again.");
+		}
 		_log?.Dispose();
 		_log = null;
 		if (_o.EjectAfter && !cancelled && !_o.DryRun && _preview == null && _o.Mode != JobMode.Delete && Interlocked.Read(ref _failed) == 0 && _dstVol.Removable)
@@ -780,7 +784,21 @@ public sealed class CopyJob
 		{
 			plan.Expected.Add(dst);
 		}
-		switch (flag ? DecideSplit(f, dst) : Decide(f, dst))
+		Decision decision = flag ? DecideSplit(f, dst) : Decide(f, dst);
+		if (decision == Decision.SkipIdentical && _o.VerifySkipped && _o.Verify && !flag && !_o.DryRun)
+		{
+			if (!SameBytes(f.FullName, dst, _jobCt))
+			{
+				decision = Decision.Copy;
+				Interlocked.Increment(ref _skipMismatch);
+				Info("Skipped-file check: " + f.Name + " looks identical but its contents differ - it will be copied again.");
+			}
+			else
+			{
+				Interlocked.Increment(ref _skipVerified);
+			}
+		}
+		switch (decision)
 		{
 		case Decision.Copy:
 			if (IsFat32 && f.Length > Fat32Max && !flag)
@@ -813,6 +831,56 @@ public sealed class CopyJob
 			_skipped++;
 			_log?.Row("skipped", f.FullName, dst, f.Length);
 			break;
+		}
+	}
+
+	private long _skipVerified;
+
+	private long _skipMismatch;
+
+	private static bool SameBytes(string a, string b, CancellationToken ct)
+	{
+		try
+		{
+			using FileStream fa = new FileStream(a, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+			using FileStream fb = new FileStream(b, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 1, FileOptions.SequentialScan);
+			if (fa.Length != fb.Length)
+			{
+				return false;
+			}
+			byte[] ba = new byte[1048576];
+			byte[] bb = new byte[1048576];
+			while (true)
+			{
+				ct.ThrowIfCancellationRequested();
+				int n = fa.Read(ba, 0, ba.Length);
+				if (n == 0)
+				{
+					return true;
+				}
+				int got = 0;
+				while (got < n)
+				{
+					int r = fb.Read(bb, got, n - got);
+					if (r == 0)
+					{
+						return false;
+					}
+					got += r;
+				}
+				if (!ba.AsSpan(0, n).SequenceEqual(bb.AsSpan(0, n)))
+				{
+					return false;
+				}
+			}
+		}
+		catch (OperationCanceledException)
+		{
+			throw;
+		}
+		catch
+		{
+			return false;
 		}
 	}
 

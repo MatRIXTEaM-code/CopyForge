@@ -47,6 +47,8 @@ internal sealed class AppSettings
 
 	public bool WriteLog { get; set; }
 
+	public bool VerifySkipped { get; set; }
+
 	public bool ShutdownAfter { get; set; }
 
 

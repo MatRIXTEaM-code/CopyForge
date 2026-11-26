@@ -87,6 +87,11 @@ internal sealed class SettingsForm : Form
 		Suffix = " MB/s"
 	};
 
+	private readonly HudCheck _chkSkipVerify = new HudCheck
+	{
+		Text = "Verify also compares files skipped as identical, byte for byte (slower)"
+	};
+
 	private readonly HudCheck _chkLog = new HudCheck
 	{
 		Text = "Write a per-file CSV log of every job (in your AppData folder)"
@@ -160,7 +165,7 @@ internal sealed class SettingsForm : Form
 		BackColor = Theme.Bg;
 		base.Padding = new Padding(10);
 		base.StartPosition = FormStartPosition.CenterParent;
-		base.ClientSize = new Size(560, 718);
+		base.ClientSize = new Size(560, 744);
 		base.FormBorderStyle = FormBorderStyle.FixedDialog;
 		base.MaximizeBox = (base.MinimizeBox = false);
 		base.ShowInTaskbar = false;
@@ -168,7 +173,7 @@ internal sealed class SettingsForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkLog, _chkShutdown, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
+		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
 		_lblMethod.SetBounds(20, 42, 300, 14);
 		_segMethod.SetBounds(20, 60, 500, 28);
 		_stChunks.SetBounds(20, 104, 300, 26);
@@ -185,14 +190,15 @@ internal sealed class SettingsForm : Form
 		_chkEject.SetBounds(20, 444, 520, 22);
 		_chkDirect.SetBounds(20, 470, 520, 22);
 		_stLimit.SetBounds(20, 500, 300, 26);
-		_chkLog.SetBounds(20, 532, 520, 22);
-		_chkShutdown.SetBounds(20, 558, 520, 22);
-		_chkShell.SetBounds(20, 584, 480, 22);
-		_lblInfo.SetBounds(20, 614, 500, 70);
+		_chkSkipVerify.SetBounds(20, 532, 520, 22);
+		_chkLog.SetBounds(20, 558, 520, 22);
+		_chkShutdown.SetBounds(20, 584, 520, 22);
+		_chkShell.SetBounds(20, 610, 480, 22);
+		_lblInfo.SetBounds(20, 640, 500, 70);
 		_lblInfo.Text = "AUTO uses Windows' own copy (instant on ReFS / offload-capable storage) when source and destination are on the same drive, and the CopyForge pipeline otherwise. Block cloning is tried first on same-volume ReFS copies. Workers per big file: AUTO only splits very large files between fast SSDs. Settings file: " + AppSettings.FilePath;
-		_bReset.SetBounds(20, 674, 110, 34);
-		_bAudit.SetBounds(146, 674, 170, 34);
-		_bClose.SetBounds(410, 674, 130, 34);
+		_bReset.SetBounds(20, 700, 110, 34);
+		_bAudit.SetBounds(146, 700, 170, 34);
+		_bClose.SetBounds(410, 700, 130, 34);
 		_segMethod.SelectedIndex = Math.Clamp(cfg.MethodIndex, 0, 2);
 		_segVerify.SelectedIndex = Math.Clamp(cfg.VerifyAlgoIndex, 0, 2);
 		_chkClone.Checked = cfg.BlockClone;
@@ -203,6 +209,7 @@ internal sealed class SettingsForm : Form
 		_stWait.Value = cfg.WaitSeconds;
 		_stLimit.Value = cfg.LimitMBps;
 		_chkLog.Checked = cfg.WriteLog;
+		_chkSkipVerify.Checked = cfg.VerifySkipped;
 		_chkShutdown.Checked = cfg.ShutdownAfter;
 		_chkShell.Checked = ShellMenu.IsInstalled();
 		_chkManifest.Checked = cfg.Manifest;
@@ -313,6 +320,8 @@ internal sealed class SettingsForm : Form
 			_cfg.LimitMBps = 0;
 			_stLimit.Value = 0L;
 			_cfg.WriteLog = false;
+			_cfg.VerifySkipped = false;
+			_chkSkipVerify.Checked = false;
 			_chkLog.Checked = false;
 			_cfg.ShutdownAfter = false;
 			_chkShutdown.Checked = false;
@@ -360,6 +369,13 @@ internal sealed class SettingsForm : Form
 			if (!_loading)
 			{
 				_cfg.LimitMBps = (int)_stLimit.Value;
+			}
+		};
+		_chkSkipVerify.CheckedChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.VerifySkipped = _chkSkipVerify.Checked;
 			}
 		};
 		_chkLog.CheckedChanged += delegate
