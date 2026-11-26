@@ -293,6 +293,48 @@ internal static class Program
 				var rj = new CopyJob(new JobOptions { Sources = new List<string> { rs }, Destination = rd, ResumeMB = 1, Verify = true }); bool resumedMsg = false; rj.Message += m => { if (m.StartsWith("Resumed an interrupted")) resumedMsg = true; }; var rr = rj.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
 				string rfin = Directory.GetFiles(rd, "big.bin", SearchOption.AllDirectories).FirstOrDefault() ?? "";
 				Check("resume completes a partial file correctly", resumedMsg && rr.FilesFailed == 0 && rfin != "" && File.ReadAllBytes(rfin).SequenceEqual(big2) && Directory.GetFiles(rd, "*.cfpart", SearchOption.AllDirectories).Length == 0, $"failed {rr.FilesFailed} done {rr.FilesProcessed} fin [{rfin}] errs {string.Join("|", rr.Errors)} parts {Directory.GetFiles(rd, "*", SearchOption.AllDirectories).Length}");
+				{
+					var b3vec = new (int n, string hex)[] {
+				(0, "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"),
+				(1, "2d3adedff11b61f14c886e35afa036736dcd87a74d27b5c1510225d0f592e213"),
+				(63, "e9bc37a594daad83be9470df7f7b3798297c3d834ce80ba85d6e207627b7db7b"),
+				(64, "4eed7141ea4a5cd4b788606bd23f46e212af9cacebacdc7d1f4c6dc7f2511b98"),
+				(65, "de1e5fa0be70df6d2be8fffd0e99ceaa8eb6e8c93a63f2d8d1c30ecb6b263dee"),
+				(1023, "10108970eeda3eb932baac1428c7a2163b0e924c9a9e25b35bba72b28f70bd11"),
+				(1024, "42214739f095a406f3fc83deb889744ac00df831c10daa55189b5d121c855af7"),
+				(1025, "d00278ae47eb27b34faecf67b4fe263f82d5412916c1ffd97c8cb7fb814b8444"),
+				(2048, "e776b6028c7cd22a4d0ba182a8bf62205d2ef576467e838ed6f2529b85fba24a"),
+				(2049, "5f4d72f40d7a5f82b15ca2b2e44b1de3c2ef86c426c95c1af0b6879522563030"),
+				(3072, "b98cb0ff3623be03326b373de6b9095218513e64f1ee2edd2525c7ad1e5cffd2"),
+				(3073, "7124b49501012f81cc7f11ca069ec9226cecb8a2c850cfe644e327d22d3e1cd3"),
+				(4096, "015094013f57a5277b59d8475c0501042c0b642e531b0a1c8f58d2163229e969"),
+				(5000, "ee78d92070de3df1c57c37002abf0a6b1a6589acdeef4d8ffac7cf3d9e8f2836"),
+				(7168, "61da957ec2499a95d6b8023e2b0e604ec7f6b50e80a9678b89d2628e99ada77a"),
+				(8192, "aae792484c8efe4f19e2ca7d371d8c467ffb10748d8a5a1ae579948f718a2a63"),
+				(100000, "d93c23eedaf165a7e0be908ba86f1a7a520d568d2d13cde787c8580c5c72cc54"),
+				(1048583, "89541f1047f7a56806fe16efda4c2cdc45f141c838e413019f0124189fa55232")
+					};
+					bool b3ok = true; string b3bad = "";
+					foreach (var (n, hex) in b3vec)
+					{
+						byte[] d = new byte[n]; for (int i = 0; i < n; i++) d[i] = (byte)(i % 251);
+						string one = Convert.ToHexString(Blake3.Hash(d)).ToLowerInvariant();
+						var inc = new Blake3(); int pos = 0; int step = 1; while (pos < n) { int take = Math.Min(step, n - pos); inc.Append(d.AsSpan(pos, take)); pos += take; step = step * 3 % 977 + 1; }
+						string two = Convert.ToHexString(inc.Finish()).ToLowerInvariant();
+						if (one != hex || two != hex) { b3ok = false; b3bad += n + " "; }
+					}
+					Check("BLAKE3 matches the reference implementation (one-shot and incremental)", b3ok, b3bad);
+				}
+				// versions: overwritten and sync-deleted files are kept
+				string vsrc = Path.Combine(root, "ver-src"); string vdst = Path.Combine(root, "ver-dst"); Directory.CreateDirectory(vsrc);
+				File.WriteAllText(Path.Combine(vsrc, "a.txt"), "one"); File.WriteAllText(Path.Combine(vsrc, "b.txt"), "bee");
+				new CopyJob(new JobOptions { Sources = new List<string> { vsrc + Path.DirectorySeparatorChar }, Destination = vdst, Mode = JobMode.Sync, KeepVersions = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				File.WriteAllText(Path.Combine(vsrc, "a.txt"), "TWO-longer"); File.SetLastWriteTimeUtc(Path.Combine(vsrc, "a.txt"), DateTime.UtcNow.AddMinutes(5)); File.Delete(Path.Combine(vsrc, "b.txt"));
+				var vr = new CopyJob(new JobOptions { Sources = new List<string> { vsrc + Path.DirectorySeparatorChar }, Destination = vdst, Mode = JobMode.Sync, KeepVersions = true, Overwrite = OverwriteMode.Always }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				string[] kept = Directory.Exists(Path.Combine(vdst, ".cf_versions")) ? Directory.GetFiles(Path.Combine(vdst, ".cf_versions"), "*", SearchOption.AllDirectories) : new string[0];
+				Check("versions keep the replaced and the deleted file", vr.FilesFailed == 0 && kept.Any(k => File.ReadAllText(k) == "one") && kept.Any(k => File.ReadAllText(k) == "bee") && File.ReadAllText(Directory.GetFiles(vdst, "a.txt", SearchOption.TopDirectoryOnly).First()) == "TWO-longer", string.Join(",", kept.Select(Path.GetFileName)) + " errs " + string.Join("|", vr.Errors));
+				var vr2 = new CopyJob(new JobOptions { Sources = new List<string> { vsrc + Path.DirectorySeparatorChar }, Destination = vdst, Mode = JobMode.Sync, KeepVersions = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				Check("a later sync does not delete the versions folder", Directory.Exists(Path.Combine(vdst, ".cf_versions")) && Directory.GetFiles(Path.Combine(vdst, ".cf_versions"), "*", SearchOption.AllDirectories).Length == kept.Length);
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}

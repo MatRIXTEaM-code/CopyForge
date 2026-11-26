@@ -8,7 +8,9 @@ public enum VerifyAlgo
 	/// <summary>xxHash3, 128-bit.</summary>
 	XxHash128,
 	/// <summary>SHA-256 (cryptographic, slowest).</summary>
-	Sha256
+	Sha256,
+	/// <summary>BLAKE3 (cryptographic, fast).</summary>
+	Blake3
 }
 
 public static class VerifyAlgos
@@ -19,6 +21,7 @@ public static class VerifyAlgos
 		{
 			VerifyAlgo.XxHash128 => "xxHash128", 
 			VerifyAlgo.Sha256 => "SHA-256", 
+			VerifyAlgo.Blake3 => "BLAKE3", 
 			_ => "xxHash3", 
 		};
 	}
@@ -38,6 +41,10 @@ public static class VerifyAlgos
 		case "xxh128":
 		case "xxhash128":
 			algo = VerifyAlgo.XxHash128;
+			return true;
+		case "blake3":
+		case "b3":
+			algo = VerifyAlgo.Blake3;
 			return true;
 		case "sha256":
 		case "sha":

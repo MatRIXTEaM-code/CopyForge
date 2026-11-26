@@ -350,6 +350,12 @@ public sealed class CopyJob
 		_sw.Start();
 		bool cancelled = false;
 		_jobCt = ct;
+		if (_o.KeepVersions && _o.Mode != JobMode.Delete && !_o.DryRun)
+		{
+			_versionsRoot = Path.Combine(Path.GetFullPath(_dest), ".cf_versions");
+			_versionStamp = DateTime.Now.ToString("yyyy-MM-dd_HHmmss");
+			Info("Keeping old versions of replaced or deleted files in " + _versionsRoot + Path.DirectorySeparatorChar + _versionStamp);
+		}
 		if (_o.LimitMBps > 0)
 		{
 			_throttle = new Throttle((long)_o.LimitMBps * 1048576L);
@@ -831,6 +837,51 @@ public sealed class CopyJob
 			_skipped++;
 			_log?.Row("skipped", f.FullName, dst, f.Length);
 			break;
+		}
+	}
+
+	private string _versionStamp = "";
+
+	private string? _versionsRoot;
+
+	private bool KeepForResume(string fullName, Plan plan)
+	{
+		return _o.ResumeMB > 0 && fullName.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase) && plan.Expected.Contains(fullName.Substring(0, fullName.Length - 7));
+	}
+
+	private bool IsVersionsDir(string fullName)
+	{
+		return _versionsRoot != null && string.Equals(fullName.TrimEnd(Path.DirectorySeparatorChar), _versionsRoot, StringComparison.OrdinalIgnoreCase);
+	}
+
+	/// <summary>Keeps the old copy of a file that is about to be replaced or deleted, under .cf_versions\date_time\ in the destination.</summary>
+	private void ArchiveOld(string path, bool move)
+	{
+		if (_versionsRoot == null || !File.Exists(path))
+		{
+			return;
+		}
+		string rel = Path.GetRelativePath(_dest, path);
+		if (rel.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(rel))
+		{
+			return;
+		}
+		string target = Path.Combine(_versionsRoot, _versionStamp, rel);
+		try
+		{
+			Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+			if (move)
+			{
+				File.Move(path, target, overwrite: true);
+			}
+			else
+			{
+				File.Copy(path, target, overwrite: true);
+			}
+		}
+		catch (Exception ex)
+		{
+			throw new IOException("could not keep the old version (" + ex.Message + ")");
 		}
 	}
 
@@ -1333,7 +1384,7 @@ public sealed class CopyJob
 			{
 				if (item is DirectoryInfo directoryInfo)
 				{
-					if (!_filter.DirExcluded(rel2, directoryInfo.Name))
+					if (!IsVersionsDir(directoryInfo.FullName) && !_filter.DirExcluded(rel2, directoryInfo.Name))
 					{
 						Prune(directoryInfo.FullName, rel2, plan, ct);
 						if (!plan.Expected.Contains(directoryInfo.FullName) && !directoryInfo.EnumerateFileSystemInfos().Any())
@@ -1343,11 +1394,18 @@ public sealed class CopyJob
 						}
 					}
 				}
-				else if (item is FileInfo fileInfo && !plan.Expected.Contains(fileInfo.FullName) && (fileInfo.Name.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase) || _filter.FileAccepted(rel2, fileInfo.Name, fileInfo.Length, fileInfo.LastWriteTimeUtc)))
+				else if (item is FileInfo fileInfo && !plan.Expected.Contains(fileInfo.FullName) && !KeepForResume(fileInfo.FullName, plan) && (fileInfo.Name.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase) || _filter.FileAccepted(rel2, fileInfo.Name, fileInfo.Length, fileInfo.LastWriteTimeUtc)))
 				{
 					_current = fileInfo.FullName;
 					fileInfo.Attributes = FileAttributes.Normal;
-					fileInfo.Delete();
+					if (_versionsRoot != null && !fileInfo.Name.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase))
+					{
+						ArchiveOld(fileInfo.FullName, move: true);
+					}
+					else
+					{
+						fileInfo.Delete();
+					}
 					Interlocked.Increment(ref _deleted);
 				}
 			}
@@ -1893,6 +1951,10 @@ public sealed class CopyJob
 	private async Task CopyFileAsync(FileItem it, CancellationToken ct)
 	{
 		EnsureDir(Path.GetDirectoryName(it.Dst));
+		if (_versionsRoot != null && File.Exists(it.Dst))
+		{
+			ArchiveOld(it.Dst, move: false);
+		}
 		if (await TryDeltaAsync(it, ct).ConfigureAwait(continueOnCapturedContext: false))
 		{
 			return;
@@ -2540,12 +2602,12 @@ public sealed class CopyJob
 			{
 				if (item is DirectoryInfo directoryInfo)
 				{
-					if (!_filter.DirExcluded(rel2, directoryInfo.Name))
+					if (!IsVersionsDir(directoryInfo.FullName) && !_filter.DirExcluded(rel2, directoryInfo.Name))
 					{
 						PrunePreview(directoryInfo.FullName, rel2, plan, del, ref count, ref trunc);
 					}
 				}
-				else if (item is FileInfo fileInfo && !plan.Expected.Contains(fileInfo.FullName) && (fileInfo.Name.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase) || _filter.FileAccepted(rel2, fileInfo.Name, fileInfo.Length, fileInfo.LastWriteTimeUtc)))
+				else if (item is FileInfo fileInfo && !plan.Expected.Contains(fileInfo.FullName) && !KeepForResume(fileInfo.FullName, plan) && (fileInfo.Name.EndsWith(".cfpart", StringComparison.OrdinalIgnoreCase) || _filter.FileAccepted(rel2, fileInfo.Name, fileInfo.Length, fileInfo.LastWriteTimeUtc)))
 				{
 					count++;
 					if (del.Count < 5000)

@@ -126,6 +126,62 @@ public static class SecureWipe
 /// <summary>What to do with the PC when a job has finished without errors.</summary>
 public static class PowerAction
 {
+	/// <summary>Runs a script or program the user named with --on-finish (no shell; the result code goes in CF_EXITCODE).</summary>
+	public static bool RunHook(string path, int exitCode, out string message)
+	{
+		message = "";
+		try
+		{
+			if (!Path.IsPathRooted(path) || !File.Exists(path))
+			{
+				message = "--on-finish: give the full path of an existing file (" + path + ").";
+				return false;
+			}
+			string ext = Path.GetExtension(path).ToLowerInvariant();
+			System.Diagnostics.ProcessStartInfo psi;
+			if (ext == ".ps1")
+			{
+				string ps = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe");
+				psi = new System.Diagnostics.ProcessStartInfo(ps);
+				psi.ArgumentList.Add("-NoProfile");
+				psi.ArgumentList.Add("-File");
+				psi.ArgumentList.Add(path);
+			}
+			else if (ext == ".cmd" || ext == ".bat")
+			{
+				psi = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe"));
+				psi.ArgumentList.Add("/c");
+				psi.ArgumentList.Add(path);
+			}
+			else if (ext == ".exe")
+			{
+				psi = new System.Diagnostics.ProcessStartInfo(path);
+			}
+			else
+			{
+				message = "--on-finish: only .ps1, .cmd, .bat and .exe files are run.";
+				return false;
+			}
+			psi.UseShellExecute = false;
+			psi.CreateNoWindow = true;
+			psi.Environment["CF_EXITCODE"] = exitCode.ToString();
+			using System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi)!;
+			if (!p.WaitForExit(300000))
+			{
+				p.Kill(entireProcessTree: true);
+				message = "--on-finish script was stopped after 5 minutes.";
+				return false;
+			}
+			message = "--on-finish script finished with code " + p.ExitCode + ".";
+			return p.ExitCode == 0;
+		}
+		catch (Exception ex)
+		{
+			message = "--on-finish failed: " + ex.Message;
+			return false;
+		}
+	}
+
 	public static bool Run(string action, out string message)
 	{
 		message = "";

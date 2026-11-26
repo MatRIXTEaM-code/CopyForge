@@ -936,6 +936,7 @@ public sealed class MainForm : Form
 		{
 			1 => VerifyAlgo.XxHash128, 
 			2 => VerifyAlgo.Sha256, 
+			3 => VerifyAlgo.Blake3, 
 			_ => VerifyAlgo.XxHash3, 
 		};
 		_chkVerify.Text = "Verify after copy  (" + VerifyAlgos.Name(algo) + ")";
@@ -980,6 +981,7 @@ public sealed class MainForm : Form
 		{
 			1 => VerifyAlgo.XxHash128, 
 			2 => VerifyAlgo.Sha256, 
+			3 => VerifyAlgo.Blake3, 
 			_ => VerifyAlgo.XxHash3, 
 		};
 		jobOptions.BlockClone = _cfg.BlockClone;

@@ -99,6 +99,9 @@ public sealed class JobOptions
 	/// <summary>Big files (this many MB or more) that are interrupted keep their .cfpart file; the next run compares it block by block and only rewrites what differs. 0 = off.</summary>
 	public int ResumeMB { get; set; } = 256;
 
+	/// <summary>Keep the old copy of every file that is overwritten or (sync) deleted, in .cf_versions\\date_time inside the destination.</summary>
+	public bool KeepVersions { get; set; }
+
 	public bool DryRun { get; set; }
 
 	public bool UseVss { get; set; }

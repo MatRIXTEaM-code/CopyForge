@@ -36,7 +36,7 @@ internal sealed class SettingsForm : Form
 
 	private readonly HudSegmented _segVerify = new HudSegmented
 	{
-		Items = new string[3] { "xxHash3 (FAST)", "xxHash128", "SHA-256" }
+		Items = new string[4] { "xxHash3 (FAST)", "xxHash128", "SHA-256", "BLAKE3" }
 	};
 
 	private readonly HudCheck _chkEject = new HudCheck
@@ -200,7 +200,7 @@ internal sealed class SettingsForm : Form
 		_bAudit.SetBounds(146, 700, 170, 34);
 		_bClose.SetBounds(410, 700, 130, 34);
 		_segMethod.SelectedIndex = Math.Clamp(cfg.MethodIndex, 0, 2);
-		_segVerify.SelectedIndex = Math.Clamp(cfg.VerifyAlgoIndex, 0, 2);
+		_segVerify.SelectedIndex = Math.Clamp(cfg.VerifyAlgoIndex, 0, 3);
 		_chkClone.Checked = cfg.BlockClone;
 		_chkEject.Checked = cfg.EjectAfter;
 		_chkDirect.Checked = cfg.DirectWriteRemovable;

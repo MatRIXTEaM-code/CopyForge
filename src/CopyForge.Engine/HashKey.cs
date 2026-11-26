@@ -23,6 +23,8 @@ internal readonly record struct HashKey(ulong A, ulong B, ulong C, ulong D)
 			SHA256.HashData(data, d);
 			return FromDigest(d);
 		}
+		case VerifyAlgo.Blake3:
+			return FromDigest(Blake3.Hash(data));
 		default:
 			return new HashKey(XxHash3.HashToUInt64(data, 0L), 0uL, 0uL, 0uL);
 		}
@@ -49,6 +51,8 @@ internal sealed class HashAcc : IDisposable
 
 	private readonly IncrementalHash? _sha;
 
+	private readonly Blake3? _b3;
+
 	public HashAcc(VerifyAlgo algo)
 	{
 		_algo = algo;
@@ -59,6 +63,9 @@ internal sealed class HashAcc : IDisposable
 			break;
 		case VerifyAlgo.Sha256:
 			_sha = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+			break;
+		case VerifyAlgo.Blake3:
+			_b3 = new Blake3();
 			break;
 		default:
 			_x3 = new XxHash3();
@@ -76,6 +83,10 @@ internal sealed class HashAcc : IDisposable
 		{
 			_sha.AppendData(data);
 		}
+		else if (_b3 != null)
+		{
+			_b3.Append(data);
+		}
 		else
 		{
 			_x3!.Append(data);
@@ -92,6 +103,10 @@ internal sealed class HashAcc : IDisposable
 		if (_sha != null)
 		{
 			return HashKey.FromDigest(_sha.GetCurrentHash());
+		}
+		if (_b3 != null)
+		{
+			return HashKey.FromDigest(_b3.Finish());
 		}
 		return new HashKey(_x3!.GetCurrentHashAsUInt64(), 0uL, 0uL, 0uL);
 	}

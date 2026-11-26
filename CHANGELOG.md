@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.6.0
+- BLAKE3 verify algorithm (Settings segment / `--verify-algo blake3`); own managed implementation, checked against the reference on 18 input sizes.
+- `--versions`: old copies of replaced files and sync-deleted files are kept in `DEST\.cf_versions\date_time\` (copy and sync; the folder is never touched by sync).
+- `--on-finish SCRIPT`: run a .ps1 / .cmd / .bat / .exe when a CLI job ends (result in `CF_EXITCODE`).
+- Fix: sync no longer deletes a resumable `.cfpart` file that the source will recreate.
+
 ## 3.5.0
 - Resume: an interrupted copy of a big file (256 MB or more, `--resume-mb N`, `--no-resume`) keeps its `.cfpart` file; the next run compares it block by block with the source and only rewrites what differs. Also works after a retry inside the same job.
 - `cfcopy schedule add|list|remove`: run a saved job from Windows Task Scheduler (as you, while you are logged on; no password stored; no delete/wipe/shutdown jobs).
