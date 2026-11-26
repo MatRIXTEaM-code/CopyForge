@@ -1293,6 +1293,29 @@ public sealed class MainForm : Form
 			{
 				Result = jobResult
 			};
+			if (_cfg.ParityPct > 0 && !opts.DryRun && opts.Mode != JobMode.Delete && !jobResult.Cancelled && jobResult.FilesFailed == 0)
+			{
+				SetStatus("WRITING REPAIR DATA", Theme.Accent, pulse: true);
+				List<string> parityRoots = new List<string> { opts.Destination };
+				parityRoots.AddRange(opts.ExtraDestinations);
+				foreach (string pr in parityRoots)
+				{
+					string proot = pr;
+					try
+					{
+						ParityResult pres = await Task.Run(() => Parity.Protect(proot, _cfg.ParityPct, null, token));
+						_log.Add($"REPAIR DATA  -  {proot}  -  {pres.Written:N0} written, {pres.Skipped:N0} already current" + ((pres.Problems.Count > 0) ? $", {pres.Problems.Count:N0} failed" : ""), (pres.Problems.Count > 0) ? Theme.Warn : Theme.Dim);
+					}
+					catch (OperationCanceledException)
+					{
+						break;
+					}
+					catch (Exception pex)
+					{
+						_log.Add("REPAIR DATA failed  -  " + pex.Message, Theme.Warn);
+					}
+				}
+			}
 			if (_cfg.OnFinish.Trim().Length > 0 && !opts.DryRun)
 			{
 				string hookPath = _cfg.OnFinish.Trim();

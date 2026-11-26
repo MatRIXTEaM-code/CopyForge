@@ -125,9 +125,9 @@ internal static class Scheduler
 		}
 		string[] job = args.Skip(dash + 1).ToArray();
 		string verb = job[0].ToLowerInvariant();
-		if (verb != "copy" && verb != "move" && verb != "sync" && verb != "watch" && verb != "audit")
+		if (verb != "copy" && verb != "move" && verb != "sync" && verb != "watch" && verb != "audit" && verb != "repair" && verb != "protect")
 		{
-			Console.Error.WriteLine("cfcopy: scheduled jobs can be copy, move, sync, watch or audit (not delete or wipe).");
+			Console.Error.WriteLine("cfcopy: scheduled jobs can be copy, move, sync, watch, audit, protect or repair (not delete or wipe).");
 			return 2;
 		}
 		if (job.Any((string a) => a.Contains('"')))

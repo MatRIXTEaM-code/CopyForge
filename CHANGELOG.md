@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.9.0
+- Settings: "Repair data after copy" percentage (copy, move and sync write repair data to every destination after a clean job) and a "Check / repair a folder..." button.
+- `cfcopy schedule` can now run `protect` and `repair` (for example a weekly `repair FOLDER --check`).
+- Release workflow puts the SHA-256 checksums into the GitHub release notes.
+
 ## 3.8.0
 - Repair data: `cfcopy protect FOLDER [--redundancy 5]` writes Reed-Solomon repair files into `FOLDER\.cf_parity`; `cfcopy repair FOLDER [--check]` finds damaged files and rebuilds them in place. `--parity N` on copy/move/sync does it after a clean job.
 - Damaged stretches are spread over many groups, so a bad patch of disk (a few MB) is repairable at 5 percent. Too much damage is reported, never hidden. Repair data protects itself with a checksum.
