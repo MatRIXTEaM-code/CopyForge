@@ -65,6 +65,10 @@ internal sealed class AppSettings
 
 	public string LocalSendFavorite { get; set; } = "";
 
+	public string LocalSendPeerPin { get; set; } = "";
+
+	public System.Collections.Generic.List<string> LocalSendTrusted { get; set; } = new System.Collections.Generic.List<string>();
+
 	public int ParityPct { get; set; }
 
 	public int ResumeMB { get; set; } = 256;

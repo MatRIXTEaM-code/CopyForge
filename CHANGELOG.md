@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.13.0
+- LocalSend receive: after you accept a transfer you can choose ALWAYS to trust that device name; trusted devices are accepted without a prompt. Tray menu has "Forget trusted LocalSend devices". (Names are not authenticated; use a PIN for stronger protection.)
+- Quick send (tray / Explorer) now uses the device PIN typed in the LocalSend window, which is remembered.
+- Explorer right-click: "Send to favourite LocalSend device (CopyForge)" sends the selection straight to the favourite (waits 1.5 s to gather a multi-file selection). Turn the Explorer option off and on in Settings to add it.
+
 ## 3.12.0
 - LocalSend window: Cancel send button while a transfer runs, and a favourite device name.
 - Tray menu: "Send the source list to <favourite>" - finds the device and sends with no further clicks (the other device still asks to accept).

@@ -425,6 +425,10 @@ public sealed class MainForm : Form
 		{
 			_startLs = true;
 		}
+		if (args.Contains("--sendfav", StringComparer.Ordinal))
+		{
+			_startFav = true;
+		}
 		foreach (string text in args)
 		{
 			if (File.Exists(text) || Directory.Exists(text))
@@ -725,6 +729,10 @@ public sealed class MainForm : Form
 		{
 			return true;
 		}
+		if (_cfg.LocalSendTrusted.Contains(who, StringComparer.OrdinalIgnoreCase))
+		{
+			return true;
+		}
 		bool answer = false;
 		try
 		{
@@ -732,6 +740,11 @@ public sealed class MainForm : Form
 			{
 				ShowMain();
 				answer = HudDialog.Confirm(this, "INCOMING FILES", $"{who} ({ip}) wants to send {count:N0} file(s), {Theme.Bytes(bytes)}.\n\nThey will be saved into:\n{_lsFolder}", danger: false, "ACCEPT", "DECLINE");
+				if (answer && who.Length > 0 && HudDialog.Confirm(this, "TRUST THIS DEVICE?", $"Accept future transfers from \"{who}\" without asking?\n\nDevices are recognised by name only, so anyone on your network who uses the same name would be accepted too.", danger: false, "ALWAYS", "JUST THIS TIME"))
+				{
+					_cfg.LocalSendTrusted.Add(who);
+					SaveSettings();
+				}
 			});
 		}
 		catch
@@ -809,6 +822,14 @@ public sealed class MainForm : Form
 		{
 			await QuickSendAsync();
 		});
+		if (_cfg.LocalSendTrusted.Count > 0)
+		{
+			menu.Items.Add($"Forget {_cfg.LocalSendTrusted.Count} trusted LocalSend device(s)", null, delegate
+			{
+				_cfg.LocalSendTrusted.Clear();
+				SaveSettings();
+			});
+		}
 		menu.Items.Add("LocalSend...", null, delegate
 		{
 			ShowMain();
@@ -851,7 +872,7 @@ public sealed class MainForm : Form
 			}
 			string alias = (_cfg.LocalSendAlias.Length > 0) ? _cfg.LocalSendAlias : ("CopyForge " + Environment.MachineName);
 			LsPeer peer = match[0];
-			LsSendResult r = await Task.Run(() => LocalSendClient.SendAsync(peer, alias, "", sources, null, null, CancellationToken.None));
+			LsSendResult r = await Task.Run(() => LocalSendClient.SendAsync(peer, alias, _cfg.LocalSendPeerPin, sources, null, null, CancellationToken.None));
 			_log.Add("LOCALSEND  -  " + r.Message, r.Ok ? Theme.Accent : Theme.Warn);
 			NotifyFinished("CopyForge - LocalSend", r.Message, !r.Ok, force: true);
 		}
@@ -1147,6 +1168,11 @@ public sealed class MainForm : Form
 					OpenLocalSend();
 				});
 			}
+			if (_startFav)
+			{
+				_startFav = false;
+				ScheduleFavSend();
+			}
 		};
 		base.FormClosing += delegate(object? _, FormClosingEventArgs e)
 		{
@@ -1397,13 +1423,34 @@ public sealed class MainForm : Form
 
 	private bool _startLs;
 
+	private bool _startFav;
+
+	private System.Windows.Forms.Timer? _favTimer;
+
+	/// <summary>Waits briefly so a multi-file Explorer selection is collected before one send.</summary>
+	private void ScheduleFavSend()
+	{
+		if (_favTimer == null)
+		{
+			_favTimer = new System.Windows.Forms.Timer { Interval = 1500 };
+			_favTimer.Tick += async delegate
+			{
+				_favTimer.Stop();
+				await QuickSendAsync();
+			};
+		}
+		_favTimer.Stop();
+		_favTimer.Start();
+	}
+
 	private bool _lsFormOpen;
 
 	public void AddPaths(IEnumerable<string> paths0)
 	{
 		List<string> paths = paths0.ToList();
 		bool ls = paths.Remove("--localsend");
-		if (_job == null || ls)
+		bool fav = paths.Remove("--sendfav");
+		if (_job == null || ls || fav)
 		{
 			HashSet<string> hashSet = new HashSet<string>(_fSrc.Lines.Select((string l) => l.Trim()), StringComparer.OrdinalIgnoreCase);
 			foreach (string path in paths)
@@ -1425,6 +1472,10 @@ public sealed class MainForm : Form
 			{
 				OpenLocalSend();
 			});
+		}
+		if (fav)
+		{
+			ScheduleFavSend();
 		}
 	}
 

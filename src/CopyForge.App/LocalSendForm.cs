@@ -150,6 +150,7 @@ internal sealed class LocalSendForm : Form
 		_fAlias.Text = _cfg.LocalSendAlias;
 		_fPin.Text = _cfg.LocalSendPin;
 		_fFav.Text = _cfg.LocalSendFavorite;
+		_fPeerPin.Text = _cfg.LocalSendPeerPin;
 		_bSend.Enabled = false;
 		_loading = false;
 		_chkRecv.CheckedChanged += delegate
@@ -182,6 +183,13 @@ internal sealed class LocalSendForm : Form
 			if (!_loading)
 			{
 				_cfg.LocalSendFavorite = _fFav.Text.Trim();
+			}
+		};
+		_fPeerPin.Inner.TextChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.LocalSendPeerPin = _fPeerPin.Text.Trim();
 			}
 		};
 		_bCancelSend.Click += delegate

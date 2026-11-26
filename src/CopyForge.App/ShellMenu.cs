@@ -10,6 +10,8 @@ internal static class ShellMenu
 
 	private static readonly string[] SendKeys = new string[2] { "Software\\Classes\\*\\shell\\CopyForgeSend", "Software\\Classes\\Directory\\shell\\CopyForgeSend" };
 
+	private static readonly string[] FavKeys = new string[2] { "Software\\Classes\\*\\shell\\CopyForgeSendFav", "Software\\Classes\\Directory\\shell\\CopyForgeSendFav" };
+
 	public static bool IsInstalled()
 	{
 		try
@@ -43,11 +45,19 @@ internal static class ShellMenu
 			using RegistryKey registryKey4 = registryKey3.CreateSubKey("command");
 			registryKey4.SetValue("", "\"" + text + "\" --localsend \"%1\"");
 		}
+		foreach (string subkey3 in FavKeys)
+		{
+			using RegistryKey registryKey5 = Registry.CurrentUser.CreateSubKey(subkey3);
+			registryKey5.SetValue("", "Send to favourite LocalSend device (CopyForge)");
+			registryKey5.SetValue("Icon", "\"" + text + "\"");
+			using RegistryKey registryKey6 = registryKey5.CreateSubKey("command");
+			registryKey6.SetValue("", "\"" + text + "\" --sendfav \"%1\"");
+		}
 	}
 
 	public static void Remove()
 	{
-		foreach (string subkey in Keys.Concat(SendKeys))
+		foreach (string subkey in Keys.Concat(SendKeys).Concat(FavKeys))
 		{
 			try
 			{
