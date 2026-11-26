@@ -90,6 +90,11 @@ internal sealed class LocalSendForm : Form
 		Hint = "favourite device name (for the one-click 'send to my phone')"
 	};
 
+	private readonly HudField _fTrust = new HudField
+	{
+		Hint = "trusted device names, separated by ;  (accepted without asking)"
+	};
+
 	private readonly HudButton _bCancelSend = new HudButton
 	{
 		Text = "Cancel send",
@@ -121,7 +126,7 @@ internal sealed class LocalSendForm : Form
 		BackColor = Theme.Bg;
 		base.Padding = new Padding(10);
 		base.StartPosition = FormStartPosition.CenterParent;
-		base.ClientSize = new Size(640, 470);
+		base.ClientSize = new Size(640, 520);
 		base.FormBorderStyle = FormBorderStyle.FixedDialog;
 		base.MaximizeBox = (base.MinimizeBox = false);
 		base.ShowInTaskbar = false;
@@ -129,7 +134,7 @@ internal sealed class LocalSendForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _bCancelSend, _lblStatus, _bClose);
+		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _fTrust, _bCancelSend, _lblStatus, _bClose);
 		_chkRecv.SetBounds(20, 44, 580, 22);
 		_fFolder.SetBounds(20, 78, 450, 28);
 		_bBrowse.SetBounds(480, 76, 120, 32);
@@ -142,8 +147,9 @@ internal sealed class LocalSendForm : Form
 		_bSend.SetBounds(470, 270, 130, 34);
 		_fFav.SetBounds(20, 344, 440, 28);
 		_bCancelSend.SetBounds(470, 310, 130, 34);
-		_lblStatus.SetBounds(20, 378, 580, 42);
-		_bClose.SetBounds(470, 424, 130, 34);
+		_fTrust.SetBounds(20, 380, 580, 28);
+		_lblStatus.SetBounds(20, 416, 430, 56);
+		_bClose.SetBounds(470, 476, 130, 34);
 		_lblStatus.Text = "Receiving asks you before every transfer unless you set a PIN. Allow CopyForge through the Windows firewall for PRIVATE networks only. If the LocalSend app is open on this PC, close it first (both use port 53317).";
 		_chkRecv.Checked = _cfg.LocalSendOn;
 		_fFolder.Text = _cfg.LocalSendFolder;
@@ -151,6 +157,7 @@ internal sealed class LocalSendForm : Form
 		_fPin.Text = _cfg.LocalSendPin;
 		_fFav.Text = _cfg.LocalSendFavorite;
 		_fPeerPin.Text = _cfg.LocalSendPeerPin;
+		_fTrust.Text = string.Join("; ", _cfg.LocalSendTrusted);
 		_bSend.Enabled = false;
 		_loading = false;
 		_chkRecv.CheckedChanged += delegate
@@ -190,6 +197,13 @@ internal sealed class LocalSendForm : Form
 			if (!_loading)
 			{
 				_cfg.LocalSendPeerPin = _fPeerPin.Text.Trim();
+			}
+		};
+		_fTrust.Inner.TextChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.LocalSendTrusted = _fTrust.Text.Split(';').Select((string n) => n.Trim()).Where((string n) => n.Length > 0).ToList();
 			}
 		};
 		_bCancelSend.Click += delegate

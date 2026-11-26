@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.14.0
+- LocalSend window: editable "trusted device names" list (separate with ;) so you can review or remove trusted devices.
+
 ## 3.13.0
 - LocalSend receive: after you accept a transfer you can choose ALWAYS to trust that device name; trusted devices are accepted without a prompt. Tray menu has "Forget trusted LocalSend devices". (Names are not authenticated; use a PIN for stronger protection.)
 - Quick send (tray / Explorer) now uses the device PIN typed in the LocalSend window, which is remembered.
