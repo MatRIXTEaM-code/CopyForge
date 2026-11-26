@@ -51,6 +51,14 @@ internal sealed class AppSettings
 
 	public bool ShutdownAfter { get; set; }
 
+	public bool KeepVersions { get; set; }
+
+	public int ResumeMB { get; set; } = 256;
+
+	public string OnFinish { get; set; } = "";
+
+	public bool AlwaysOnTop { get; set; }
+
 
 	public bool Flush { get; set; } = true;
 

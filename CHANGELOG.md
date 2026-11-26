@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.7.0
+- Settings: new controls for keep-old-versions, resume size and a run-after-job script (the GUI now runs it too, result in `CF_EXITCODE`), plus a keep-window-on-top option.
+- Settings window is now two columns (1080 x 560) so it fits 768-px screens.
+- Window title shows the live speed and percentage while a job runs.
+
 ## 3.6.0
 - BLAKE3 verify algorithm (Settings segment / `--verify-algo blake3`); own managed implementation, checked against the reference on 18 input sizes.
 - `--versions`: old copies of replaced files and sync-deleted files are kept in `DEST\.cf_versions\date_time\` (copy and sync; the folder is never touched by sync).

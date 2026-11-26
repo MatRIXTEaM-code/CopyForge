@@ -102,6 +102,39 @@ internal sealed class SettingsForm : Form
 		Text = "Shut down the PC when a copy finishes without errors (60 s to cancel)"
 	};
 
+	private readonly HudCheck _chkVersions = new HudCheck
+	{
+		Text = "Keep old copies of replaced / sync-deleted files (.cf_versions folder)"
+	};
+
+	private readonly HudStepper _stResume = new HudStepper
+	{
+		Label = "Resume big files from (0 = off)",
+		Min = 0L,
+		Max = 100000L,
+		Step = 64L,
+		Suffix = " MB"
+	};
+
+	private readonly HudCheck _chkTop = new HudCheck
+	{
+		Text = "Keep the CopyForge window on top"
+	};
+
+	private readonly Label _lblHook = new Label
+	{
+		AutoSize = false,
+		BackColor = Theme.Panel,
+		ForeColor = Theme.Dim,
+		Font = Theme.FSmall,
+		Text = "RUN AFTER EACH JOB  (full path of a .ps1 / .cmd / .bat / .exe; empty = none)"
+	};
+
+	private readonly HudField _fHook = new HudField
+	{
+		Hint = "C:\\scripts\\after-copy.cmd"
+	};
+
 	private readonly HudCheck _chkManifest = new HudCheck
 	{
 		Text = "Write a SHA-256 checksum manifest (cfmanifest.json) after each copy"
@@ -165,7 +198,7 @@ internal sealed class SettingsForm : Form
 		BackColor = Theme.Bg;
 		base.Padding = new Padding(10);
 		base.StartPosition = FormStartPosition.CenterParent;
-		base.ClientSize = new Size(560, 744);
+		base.ClientSize = new Size(1080, 560);
 		base.FormBorderStyle = FormBorderStyle.FixedDialog;
 		base.MaximizeBox = (base.MinimizeBox = false);
 		base.ShowInTaskbar = false;
@@ -173,7 +206,7 @@ internal sealed class SettingsForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
+		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
 		_lblMethod.SetBounds(20, 42, 300, 14);
 		_segMethod.SetBounds(20, 60, 500, 28);
 		_stChunks.SetBounds(20, 104, 300, 26);
@@ -186,19 +219,24 @@ internal sealed class SettingsForm : Form
 		_chkDelta.SetBounds(20, 340, 500, 22);
 		_chkAuto.SetBounds(20, 366, 500, 22);
 		_chkVss.SetBounds(20, 392, 500, 22);
-		_chkClone.SetBounds(20, 418, 520, 22);
-		_chkEject.SetBounds(20, 444, 520, 22);
-		_chkDirect.SetBounds(20, 470, 520, 22);
-		_stLimit.SetBounds(20, 500, 300, 26);
-		_chkSkipVerify.SetBounds(20, 532, 520, 22);
-		_chkLog.SetBounds(20, 558, 520, 22);
-		_chkShutdown.SetBounds(20, 584, 520, 22);
-		_chkShell.SetBounds(20, 610, 480, 22);
-		_lblInfo.SetBounds(20, 640, 500, 70);
+		_chkClone.SetBounds(560, 42, 500, 22);
+		_chkEject.SetBounds(560, 68, 500, 22);
+		_chkDirect.SetBounds(560, 94, 500, 22);
+		_stLimit.SetBounds(560, 124, 300, 26);
+		_chkSkipVerify.SetBounds(560, 160, 500, 22);
+		_chkLog.SetBounds(560, 186, 500, 22);
+		_chkShutdown.SetBounds(560, 212, 500, 22);
+		_chkVersions.SetBounds(560, 238, 500, 22);
+		_stResume.SetBounds(560, 270, 340, 26);
+		_chkTop.SetBounds(560, 306, 500, 22);
+		_lblHook.SetBounds(560, 340, 500, 14);
+		_fHook.SetBounds(560, 358, 500, 28);
+		_chkShell.SetBounds(20, 426, 480, 22);
+		_lblInfo.SetBounds(20, 450, 1040, 50);
 		_lblInfo.Text = "AUTO uses Windows' own copy (instant on ReFS / offload-capable storage) when source and destination are on the same drive, and the CopyForge pipeline otherwise. Block cloning is tried first on same-volume ReFS copies. Workers per big file: AUTO only splits very large files between fast SSDs. Settings file: " + AppSettings.FilePath;
-		_bReset.SetBounds(20, 700, 110, 34);
-		_bAudit.SetBounds(146, 700, 170, 34);
-		_bClose.SetBounds(410, 700, 130, 34);
+		_bReset.SetBounds(20, 510, 110, 34);
+		_bAudit.SetBounds(146, 510, 170, 34);
+		_bClose.SetBounds(930, 510, 130, 34);
 		_segMethod.SelectedIndex = Math.Clamp(cfg.MethodIndex, 0, 2);
 		_segVerify.SelectedIndex = Math.Clamp(cfg.VerifyAlgoIndex, 0, 3);
 		_chkClone.Checked = cfg.BlockClone;
@@ -212,6 +250,10 @@ internal sealed class SettingsForm : Form
 		_chkSkipVerify.Checked = cfg.VerifySkipped;
 		_chkShutdown.Checked = cfg.ShutdownAfter;
 		_chkShell.Checked = ShellMenu.IsInstalled();
+		_chkVersions.Checked = cfg.KeepVersions;
+		_stResume.Value = cfg.ResumeMB;
+		_chkTop.Checked = cfg.AlwaysOnTop;
+		_fHook.Text = cfg.OnFinish;
 		_chkManifest.Checked = cfg.Manifest;
 		_chkSign.Checked = cfg.SignManifest;
 		_chkDelta.Checked = cfg.Delta;
@@ -325,6 +367,10 @@ internal sealed class SettingsForm : Form
 			_chkLog.Checked = false;
 			_cfg.ShutdownAfter = false;
 			_chkShutdown.Checked = false;
+			_chkVersions.Checked = false;
+			_stResume.Value = 256L;
+			_chkTop.Checked = false;
+			_fHook.Text = "";
 			HudCheck chkManifest = _chkManifest;
 			HudCheck chkSign = _chkSign;
 			HudCheck chkDelta = _chkDelta;
@@ -383,6 +429,34 @@ internal sealed class SettingsForm : Form
 			if (!_loading)
 			{
 				_cfg.WriteLog = _chkLog.Checked;
+			}
+		};
+		_chkVersions.CheckedChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.KeepVersions = _chkVersions.Checked;
+			}
+		};
+		_stResume.ValueChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.ResumeMB = (int)_stResume.Value;
+			}
+		};
+		_chkTop.CheckedChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.AlwaysOnTop = _chkTop.Checked;
+			}
+		};
+		_fHook.Inner.TextChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.OnFinish = _fHook.Text.Trim();
 			}
 		};
 		_chkShutdown.CheckedChanged += delegate

@@ -413,6 +413,7 @@ public sealed class MainForm : Form
 		DoubleBuffered = true;
 		base.StartPosition = FormStartPosition.CenterScreen;
 		base.ClientSize = new Size(1260, 900);
+		base.TopMost = _cfg.AlwaysOnTop;
 		MinimumSize = SizeFromClientSize(new Size(1120, 870));
 		BuildLeft();
 		BuildRight();
@@ -731,6 +732,7 @@ public sealed class MainForm : Form
 		{
 			using SettingsForm settingsForm = new SettingsForm(_cfg);
 			settingsForm.ShowDialog(this);
+			base.TopMost = _cfg.AlwaysOnTop;
 			_cfg.Save();
 			UpdateVerifyLabel();
 		};
@@ -989,6 +991,8 @@ public sealed class MainForm : Form
 		jobOptions.DirectWriteRemovable = _cfg.DirectWriteRemovable;
 		jobOptions.LimitMBps = _cfg.LimitMBps;
 		jobOptions.VerifySkipped = _cfg.VerifySkipped;
+		jobOptions.KeepVersions = _cfg.KeepVersions && CurrentMode != JobMode.Delete;
+		jobOptions.ResumeMB = _cfg.ResumeMB;
 		jobOptions.LogPath = (_cfg.WriteLog ? AppSettings.LogPath : "");
 		jobOptions.Include = _fInc.Text;
 		jobOptions.Exclude = _fExc.Text;
@@ -1289,6 +1293,17 @@ public sealed class MainForm : Form
 			{
 				Result = jobResult
 			};
+			if (_cfg.OnFinish.Trim().Length > 0 && !opts.DryRun)
+			{
+				string hookPath = _cfg.OnFinish.Trim();
+				int hookCode = (jobResult.Cancelled ? 3 : ((jobResult.FilesFailed > 0) ? 1 : 0));
+				string hookMsg = "";
+				await Task.Run(delegate
+				{
+					PowerAction.RunHook(hookPath, hookCode, out hookMsg);
+				});
+				_log.Add(hookMsg, Theme.Dim);
+			}
 			if (_cfg.ShutdownAfter && opts.Mode != JobMode.Delete && !jobResult.Cancelled && jobResult.FilesFailed == 0 && !opts.DryRun)
 			{
 				PowerAction.Run("shutdown", out var powerMsg);
@@ -1545,6 +1560,10 @@ public sealed class MainForm : Form
 		_bCancel.Enabled = running;
 		_bPause.Visible = running;
 		_bPause.Text = "Pause";
+		if (!running)
+		{
+			Text = "CopyForge";
+		}
 		if (running)
 		{
 			_bEject.Visible = false;
@@ -1604,6 +1623,8 @@ public sealed class MainForm : Form
 			_gauge.Phase = snapshot.Phase;
 			_segBar.Value = snapshot.Fraction;
 			double num2;
+			string value2 = "";
+			string unit2 = "";
 			if (flag)
 			{
 				long elapsedMilliseconds = _clock.ElapsedMilliseconds;
@@ -1618,8 +1639,11 @@ public sealed class MainForm : Form
 				num2 = snapshot.BytesPerSecond;
 				Theme.RateParts(num2, out string value, out string unit);
 				_readout.Set(value, unit);
+				value2 = value;
+				unit2 = unit;
 			}
 			_graph.Add(num2);
+			Text = (_bCancel.Enabled ? ((flag ? (num2.ToString("0") + " files/s") : (value2 + " " + unit2)) + "  -  " + ((int)(snapshot.Fraction * 100.0)) + "%  -  CopyForge") : "CopyForge");
 			_tFiles.Value = $"{snapshot.FilesDone:N0} / {snapshot.FilesTotal:N0}";
 			_tData.Value = (flag ? "—" : (Theme.Bytes(snapshot.BytesDone) + " / " + Theme.Bytes(snapshot.BytesTotal)));
 			_tSkipped.Value = snapshot.FilesSkipped.ToString("N0");
