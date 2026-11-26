@@ -96,6 +96,9 @@ public sealed class JobOptions
 	/// <summary>With Verify on: files skipped as "identical" (same size and time) are also compared byte for byte; a difference makes them copy again.</summary>
 	public bool VerifySkipped { get; set; }
 
+	/// <summary>Big files (this many MB or more) that are interrupted keep their .cfpart file; the next run compares it block by block and only rewrites what differs. 0 = off.</summary>
+	public int ResumeMB { get; set; } = 256;
+
 	public bool DryRun { get; set; }
 
 	public bool UseVss { get; set; }

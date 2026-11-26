@@ -657,11 +657,39 @@ public sealed class MainForm : Form
 		e.Graphics.DrawImageUnscaled(_bgCache, 0, 0);
 	}
 
+	private NotifyIcon? _tray;
+
+	/// <summary>Windows balloon / toast when a job ends while CopyForge is minimised or in the background.</summary>
+	private void NotifyFinished(string title, string text, bool bad)
+	{
+		try
+		{
+			if (base.WindowState != FormWindowState.Minimized && Form.ActiveForm == this)
+			{
+				return;
+			}
+			_tray ??= new NotifyIcon
+			{
+				Icon = (base.Icon ?? SystemIcons.Application),
+				Text = "CopyForge"
+			};
+			_tray.Visible = true;
+			_tray.BalloonTipTitle = title;
+			_tray.BalloonTipText = text;
+			_tray.BalloonTipIcon = (bad ? ToolTipIcon.Warning : ToolTipIcon.Info);
+			_tray.ShowBalloonTip(8000);
+		}
+		catch
+		{
+		}
+	}
+
 	protected override void Dispose(bool disposing)
 	{
 		if (disposing)
 		{
 			_anim.Dispose();
+			_tray?.Dispose();
 			_bgCache?.Dispose();
 			_cts?.Dispose();
 		}
@@ -1279,6 +1307,7 @@ public sealed class MainForm : Form
 			}
 			Poll();
 			ShowResult(opts, jobResult);
+			NotifyFinished(jobResult.Cancelled ? "CopyForge - aborted" : ((jobResult.FilesFailed > 0) ? "CopyForge - finished with errors" : "CopyForge - finished"), $"{jobResult.FilesProcessed:N0} files, {Theme.Bytes(jobResult.BytesTransferred)}" + ((jobResult.FilesFailed > 0) ? $", {jobResult.FilesFailed:N0} failed" : ""), jobResult.FilesFailed > 0 || jobResult.Cancelled);
 		}
 		catch (InvalidOperationException ex)
 		{

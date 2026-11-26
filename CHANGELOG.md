@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.5.0
+- Resume: an interrupted copy of a big file (256 MB or more, `--resume-mb N`, `--no-resume`) keeps its `.cfpart` file; the next run compares it block by block with the source and only rewrites what differs. Also works after a retry inside the same job.
+- `cfcopy schedule add|list|remove`: run a saved job from Windows Task Scheduler (as you, while you are logged on; no password stored; no delete/wipe/shutdown jobs).
+- Windows notification when a job finishes while CopyForge is minimised or in the background.
+
 ## 3.4.1
 - Verify can also compare files skipped as "identical" byte for byte and copy them again if they differ: Settings checkbox / `--verify-skipped`. Catches silent corruption that same-size-and-time checks miss.
 

@@ -284,6 +284,15 @@ internal static class Program
 				Check("without verify-skipped a silent corruption is missed", plain.FilesProcessed == 0);
 				var vsr = new CopyJob(new JobOptions { Sources = new List<string> { vs }, Destination = vd, Verify = true, VerifySkipped = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
 				Check("verify-skipped finds and repairs it", vsr.FilesProcessed == 1 && File.ReadAllBytes(df).SequenceEqual(File.ReadAllBytes(Directory.GetFiles(vs, "f.bin", SearchOption.AllDirectories).First())));
+				// resume: a half-written .cfpart (plus a wrong block) must be completed, not restarted blindly
+				string rs = Path.Combine(root, "rs-src"); string rd = Path.Combine(root, "rs-dst"); Directory.CreateDirectory(rs); Directory.CreateDirectory(rd);
+				byte[] big2 = new byte[5 * 1048576]; new Random(21).NextBytes(big2);
+				File.WriteAllBytes(Path.Combine(rs, "big.bin"), big2);
+				byte[] half = new byte[3 * 1048576 + 12345]; Array.Copy(big2, half, half.Length); half[1000] ^= 0xFF;
+				Directory.CreateDirectory(Path.Combine(rd, "rs-src")); File.WriteAllBytes(Path.Combine(rd, "rs-src", "big.bin.cfpart"), half);
+				var rj = new CopyJob(new JobOptions { Sources = new List<string> { rs }, Destination = rd, ResumeMB = 1, Verify = true }); bool resumedMsg = false; rj.Message += m => { if (m.StartsWith("Resumed an interrupted")) resumedMsg = true; }; var rr = rj.RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+				string rfin = Directory.GetFiles(rd, "big.bin", SearchOption.AllDirectories).FirstOrDefault() ?? "";
+				Check("resume completes a partial file correctly", resumedMsg && rr.FilesFailed == 0 && rfin != "" && File.ReadAllBytes(rfin).SequenceEqual(big2) && Directory.GetFiles(rd, "*.cfpart", SearchOption.AllDirectories).Length == 0, $"failed {rr.FilesFailed} done {rr.FilesProcessed} fin [{rfin}] errs {string.Join("|", rr.Errors)} parts {Directory.GetFiles(rd, "*", SearchOption.AllDirectories).Length}");
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}

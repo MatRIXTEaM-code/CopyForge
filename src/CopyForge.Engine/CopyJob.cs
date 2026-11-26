@@ -1435,16 +1435,17 @@ public sealed class CopyJob
 		this.Message?.Invoke("ERROR: " + msg);
 	}
 
-	private async Task<bool> TryDeltaAsync(FileItem it, CancellationToken ct)
+	private async Task<bool> TryDeltaAsync(FileItem it, CancellationToken ct, bool resume = false)
 	{
-		if (!_o.DeltaUpdate || it.Size < (long)_o.DeltaMinMB * 1024L * 1024 || NeedsSplit(it.Size))
+		if (resume ? (_o.ResumeMB <= 0 || it.Size < (long)_o.ResumeMB * 1024L * 1024 || NeedsSplit(it.Size)) : (!_o.DeltaUpdate || it.Size < (long)_o.DeltaMinMB * 1024L * 1024 || NeedsSplit(it.Size)))
 		{
 			return false;
 		}
+		string dp = resume ? (it.Dst + ".cfpart") : it.Dst;
 		FileInfo fileInfo;
 		try
 		{
-			fileInfo = new FileInfo(it.Dst);
+			fileInfo = new FileInfo(dp);
 		}
 		catch
 		{
@@ -1458,7 +1459,7 @@ public sealed class CopyJob
 		{
 			if ((fileInfo.Attributes & FileAttributes.ReadOnly) != 0)
 			{
-				File.SetAttributes(it.Dst, FileAttributes.Normal);
+				File.SetAttributes(dp, FileAttributes.Normal);
 			}
 		}
 		catch
@@ -1466,10 +1467,10 @@ public sealed class CopyJob
 			return false;
 		}
 		long written = 0L;
-		File.SetLastWriteTimeUtc(it.Dst, new DateTime(1980, 1, 2, 0, 0, 0, DateTimeKind.Utc));
+		File.SetLastWriteTimeUtc(dp, new DateTime(1980, 1, 2, 0, 0, 0, DateTimeKind.Utc));
 		using (SafeFileHandle src = File.OpenHandle(it.Src, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, FileOptions.SequentialScan | FileOptions.Asynchronous, 0L))
 		{
-			using SafeFileHandle dst = File.OpenHandle(it.Dst, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, FileOptions.Asynchronous, 0L);
+			using SafeFileHandle dst = File.OpenHandle(dp, FileMode.Open, FileAccess.ReadWrite, FileShare.Read, FileOptions.Asynchronous, 0L);
 			AlignedBuffer bs = Rent();
 			AlignedBuffer bd = Rent();
 			try
@@ -1518,7 +1519,20 @@ public sealed class CopyJob
 		}
 		if (_o.Verify)
 		{
-			await VerifyNativeAsync(it, it.Dst, ct).ConfigureAwait(continueOnCapturedContext: false);
+			await VerifyNativeAsync(it, dp, ct).ConfigureAwait(continueOnCapturedContext: false);
+		}
+		if (resume)
+		{
+			try
+			{
+				File.Move(dp, it.Dst, overwrite: true);
+			}
+			catch (UnauthorizedAccessException)
+			{
+				File.SetAttributes(it.Dst, FileAttributes.Normal);
+				File.Move(dp, it.Dst, overwrite: true);
+			}
+			Info("Resumed an interrupted copy of " + Path.GetFileName(it.Dst) + ": " + FormatBytes(written) + " of " + FormatBytes(it.Size) + " had to be written again.");
 		}
 		try
 		{
@@ -1883,6 +1897,10 @@ public sealed class CopyJob
 		{
 			return;
 		}
+		if (await TryDeltaAsync(it, ct, resume: true).ConfigureAwait(continueOnCapturedContext: false))
+		{
+			return;
+		}
 		Strategy s = Choose(it);
 		Target t = BuildTarget(it, s.Split);
 		if (!s.Split && it.Size <= 4194304)
@@ -2108,7 +2126,11 @@ public sealed class CopyJob
 		finally
 		{
 			t.Close();
-			if (!ok)
+			if (!ok && !t.InPlace && _o.ResumeMB > 0 && it.Size >= (long)_o.ResumeMB * 1024L * 1024 && !s.Split && t.Tmp.Length == 1 && t.Tmp[0].EndsWith(".cfpart", StringComparison.Ordinal))
+			{
+				Info("Keeping the partly written " + Path.GetFileName(t.Tmp[0]) + " so the next run can resume this file.");
+			}
+			else if (!ok)
 			{
 				string[] final = t.Tmp;
 				foreach (string path2 in final)
