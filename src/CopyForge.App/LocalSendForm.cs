@@ -85,6 +85,19 @@ internal sealed class LocalSendForm : Form
 		Hint = "device's PIN, if any"
 	};
 
+	private readonly HudField _fFav = new HudField
+	{
+		Hint = "favourite device name (for the one-click 'send to my phone')"
+	};
+
+	private readonly HudButton _bCancelSend = new HudButton
+	{
+		Text = "Cancel send",
+		Visible = false
+	};
+
+	private CancellationTokenSource? _sendCts;
+
 	private readonly Label _lblStatus = new Label
 	{
 		AutoSize = false,
@@ -116,7 +129,7 @@ internal sealed class LocalSendForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _lblStatus, _bClose);
+		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _bCancelSend, _lblStatus, _bClose);
 		_chkRecv.SetBounds(20, 44, 580, 22);
 		_fFolder.SetBounds(20, 78, 450, 28);
 		_bBrowse.SetBounds(480, 76, 120, 32);
@@ -127,13 +140,16 @@ internal sealed class LocalSendForm : Form
 		_bFind.SetBounds(470, 186, 130, 34);
 		_fPeerPin.SetBounds(470, 230, 130, 28);
 		_bSend.SetBounds(470, 270, 130, 34);
-		_lblStatus.SetBounds(20, 346, 580, 70);
+		_fFav.SetBounds(20, 344, 440, 28);
+		_bCancelSend.SetBounds(470, 310, 130, 34);
+		_lblStatus.SetBounds(20, 378, 580, 42);
 		_bClose.SetBounds(470, 424, 130, 34);
 		_lblStatus.Text = "Receiving asks you before every transfer unless you set a PIN. Allow CopyForge through the Windows firewall for PRIVATE networks only. If the LocalSend app is open on this PC, close it first (both use port 53317).";
 		_chkRecv.Checked = _cfg.LocalSendOn;
 		_fFolder.Text = _cfg.LocalSendFolder;
 		_fAlias.Text = _cfg.LocalSendAlias;
 		_fPin.Text = _cfg.LocalSendPin;
+		_fFav.Text = _cfg.LocalSendFavorite;
 		_bSend.Enabled = false;
 		_loading = false;
 		_chkRecv.CheckedChanged += delegate
@@ -160,6 +176,17 @@ internal sealed class LocalSendForm : Form
 			{
 				_cfg.LocalSendPin = _fPin.Text.Trim();
 			}
+		};
+		_fFav.Inner.TextChanged += delegate
+		{
+			if (!_loading)
+			{
+				_cfg.LocalSendFavorite = _fFav.Text.Trim();
+			}
+		};
+		_bCancelSend.Click += delegate
+		{
+			_sendCts?.Cancel();
 		};
 		_bBrowse.Click += delegate
 		{
@@ -243,6 +270,9 @@ internal sealed class LocalSendForm : Form
 		string alias = (_cfg.LocalSendAlias.Length > 0) ? _cfg.LocalSendAlias : ("CopyForge " + Environment.MachineName);
 		_bSend.Enabled = false;
 		_bFind.Enabled = false;
+		_sendCts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+		CancellationToken sendToken = _sendCts.Token;
+		_bCancelSend.Visible = true;
 		try
 		{
 			LsSendResult r = await Task.Run(() => LocalSendClient.SendAsync(peer, alias, _fPeerPin.Text.Trim(), sources, delegate(string m)
@@ -257,12 +287,13 @@ internal sealed class LocalSendForm : Form
 				{
 					_lblStatus.Text = $"Sending to {peer.Alias}: {Theme.Bytes(done)} of {Theme.Bytes(total)}";
 				});
-			}, _cts.Token));
+			}, sendToken));
 			_lblStatus.Text = r.Message;
 			HudDialog.Notify(this, r.Ok ? "SENT" : "NOT SENT", r.Message, !r.Ok);
 		}
 		catch (OperationCanceledException)
 		{
+			_lblStatus.Text = "Send cancelled. Files that had already arrived stay on the other device.";
 		}
 		catch (Exception ex)
 		{
@@ -270,6 +301,9 @@ internal sealed class LocalSendForm : Form
 		}
 		finally
 		{
+			_bCancelSend.Visible = false;
+			_sendCts?.Dispose();
+			_sendCts = null;
 			_bFind.Enabled = true;
 			_bSend.Enabled = _list.SelectedIndex >= 0;
 		}

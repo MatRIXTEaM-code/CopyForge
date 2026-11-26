@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using Microsoft.Win32;
 
 namespace CopyForge.App;
@@ -6,6 +7,8 @@ namespace CopyForge.App;
 internal static class ShellMenu
 {
 	private static readonly string[] Keys = new string[2] { "Software\\Classes\\*\\shell\\CopyForge", "Software\\Classes\\Directory\\shell\\CopyForge" };
+
+	private static readonly string[] SendKeys = new string[2] { "Software\\Classes\\*\\shell\\CopyForgeSend", "Software\\Classes\\Directory\\shell\\CopyForgeSend" };
 
 	public static bool IsInstalled()
 	{
@@ -32,12 +35,19 @@ internal static class ShellMenu
 			using RegistryKey registryKey2 = registryKey.CreateSubKey("command");
 			registryKey2.SetValue("", "\"" + text + "\" \"%1\"");
 		}
+		foreach (string subkey2 in SendKeys)
+		{
+			using RegistryKey registryKey3 = Registry.CurrentUser.CreateSubKey(subkey2);
+			registryKey3.SetValue("", "Send with LocalSend (CopyForge)");
+			registryKey3.SetValue("Icon", "\"" + text + "\"");
+			using RegistryKey registryKey4 = registryKey3.CreateSubKey("command");
+			registryKey4.SetValue("", "\"" + text + "\" --localsend \"%1\"");
+		}
 	}
 
 	public static void Remove()
 	{
-		string[] keys = Keys;
-		foreach (string subkey in keys)
+		foreach (string subkey in Keys.Concat(SendKeys))
 		{
 			try
 			{

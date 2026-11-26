@@ -421,6 +421,10 @@ public sealed class MainForm : Form
 		WireEvents();
 		LoadSettings();
 		ApplyMode();
+		if (args.Contains("--localsend", StringComparer.Ordinal))
+		{
+			_startLs = true;
+		}
 		foreach (string text in args)
 		{
 			if (File.Exists(text) || Directory.Exists(text))
@@ -800,6 +804,11 @@ public sealed class MainForm : Form
 		}
 		menu.Items.Add(run);
 		menu.Items.Add(remove);
+		string fav = _cfg.LocalSendFavorite.Trim();
+		menu.Items.Add((fav.Length > 0) ? ("Send the source list to " + fav) : "Send the source list to my LocalSend device (set a favourite first)", null, async delegate
+		{
+			await QuickSendAsync();
+		});
 		menu.Items.Add("LocalSend...", null, delegate
 		{
 			ShowMain();
@@ -807,7 +816,69 @@ public sealed class MainForm : Form
 		});
 	}
 
+	/// <summary>Sends the main window's source list to the favourite LocalSend device, with no further clicks.</summary>
+	private async Task QuickSendAsync()
+	{
+		string fav = _cfg.LocalSendFavorite.Trim();
+		if (fav.Length == 0)
+		{
+			ShowMain();
+			OpenLocalSend();
+			return;
+		}
+		List<string> sources = _fSrc.Lines.Where((string l) => !string.IsNullOrWhiteSpace(l)).ToList();
+		if (sources.Count == 0)
+		{
+			ShowMain();
+			HudDialog.Notify(this, "LOCALSEND", "The source list in the main window is empty.");
+			return;
+		}
+		_log.Add("LOCALSEND  -  looking for '" + fav + "'", Theme.Accent);
+		try
+		{
+			List<LsPeer> peers = await LocalSendClient.DiscoverAsync(TimeSpan.FromSeconds(3), CancellationToken.None);
+			List<LsPeer> match = peers.Where((LsPeer x) => string.Equals(x.Alias, fav, StringComparison.OrdinalIgnoreCase)).ToList();
+			if (match.Count == 0)
+			{
+				match = peers.Where((LsPeer x) => x.Alias.Contains(fav, StringComparison.OrdinalIgnoreCase)).ToList();
+			}
+			if (match.Count != 1)
+			{
+				string why = (match.Count == 0) ? ("'" + fav + "' was not found on the network.") : ("'" + fav + "' matches several devices.");
+				_log.Add("LOCALSEND  -  " + why, Theme.Warn);
+				NotifyFinished("CopyForge - LocalSend", why, bad: true, force: true);
+				return;
+			}
+			string alias = (_cfg.LocalSendAlias.Length > 0) ? _cfg.LocalSendAlias : ("CopyForge " + Environment.MachineName);
+			LsPeer peer = match[0];
+			LsSendResult r = await Task.Run(() => LocalSendClient.SendAsync(peer, alias, "", sources, null, null, CancellationToken.None));
+			_log.Add("LOCALSEND  -  " + r.Message, r.Ok ? Theme.Accent : Theme.Warn);
+			NotifyFinished("CopyForge - LocalSend", r.Message, !r.Ok, force: true);
+		}
+		catch (Exception ex)
+		{
+			_log.Add("LOCALSEND failed  -  " + ex.Message, Theme.Warn);
+		}
+	}
+
 	private void OpenLocalSend()
+	{
+		if (_lsFormOpen)
+		{
+			return;
+		}
+		_lsFormOpen = true;
+		try
+		{
+			OpenLocalSendCore();
+		}
+		finally
+		{
+			_lsFormOpen = false;
+		}
+	}
+
+	private void OpenLocalSendCore()
 	{
 		using LocalSendForm f = new LocalSendForm(_cfg, () => _fSrc.Lines.Where((string l) => !string.IsNullOrWhiteSpace(l)).ToList());
 		f.ShowDialog(this);
@@ -1068,6 +1139,14 @@ public sealed class MainForm : Form
 		{
 			EnsureTray().Visible = true;
 			ApplyLocalSend();
+			if (_startLs)
+			{
+				_startLs = false;
+				BeginInvoke(delegate
+				{
+					OpenLocalSend();
+				});
+			}
 		};
 		base.FormClosing += delegate(object? _, FormClosingEventArgs e)
 		{
@@ -1316,9 +1395,15 @@ public sealed class MainForm : Form
 		_cfg.Save();
 	}
 
-	public void AddPaths(IEnumerable<string> paths)
+	private bool _startLs;
+
+	private bool _lsFormOpen;
+
+	public void AddPaths(IEnumerable<string> paths0)
 	{
-		if (_job == null)
+		List<string> paths = paths0.ToList();
+		bool ls = paths.Remove("--localsend");
+		if (_job == null || ls)
 		{
 			HashSet<string> hashSet = new HashSet<string>(_fSrc.Lines.Select((string l) => l.Trim()), StringComparer.OrdinalIgnoreCase);
 			foreach (string path in paths)
@@ -1334,6 +1419,13 @@ public sealed class MainForm : Form
 			base.WindowState = FormWindowState.Normal;
 		}
 		Activate();
+		if (ls)
+		{
+			BeginInvoke(delegate
+			{
+				OpenLocalSend();
+			});
+		}
 	}
 
 	private async Task<string> PreviewTextAsync(JobOptions o)

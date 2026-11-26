@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.12.0
+- LocalSend window: Cancel send button while a transfer runs, and a favourite device name.
+- Tray menu: "Send the source list to <favourite>" - finds the device and sends with no further clicks (the other device still asks to accept).
+- Explorer right-click: "Send with LocalSend (CopyForge)" adds the file or folder to the source list and opens the LocalSend window. Turn the Explorer option off and on in Settings to add it if you already had it on.
+
 ## 3.11.0
 - LocalSend window (tray menu or Settings > LocalSend...): receive settings (folder, device name, PIN), an accept/decline prompt in the main window for every incoming transfer (no prompt when a PIN is set), and a device list with Find devices / Send for the files and folders in the main window's source list.
 - `cfcopy lsfind` lists LocalSend devices; `cfcopy lssend SOURCE... --to DEVICE [--pin PIN]` sends files or folders (SHA-256 included, device certificate checked against the announced fingerprint).

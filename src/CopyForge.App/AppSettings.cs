@@ -63,6 +63,8 @@ internal sealed class AppSettings
 
 	public string LocalSendPin { get; set; } = "";
 
+	public string LocalSendFavorite { get; set; } = "";
+
 	public int ParityPct { get; set; }
 
 	public int ResumeMB { get; set; } = 256;
