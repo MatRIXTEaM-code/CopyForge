@@ -1,5 +1,10 @@
 # Changelog
 
+## 3.8.0
+- Repair data: `cfcopy protect FOLDER [--redundancy 5]` writes Reed-Solomon repair files into `FOLDER\.cf_parity`; `cfcopy repair FOLDER [--check]` finds damaged files and rebuilds them in place. `--parity N` on copy/move/sync does it after a clean job.
+- Damaged stretches are spread over many groups, so a bad patch of disk (a few MB) is repairable at 5 percent. Too much damage is reported, never hidden. Repair data protects itself with a checksum.
+- Sync and prune never delete `.cf_parity`.
+
 ## 3.7.0
 - Settings: new controls for keep-old-versions, resume size and a run-after-job script (the GUI now runs it too, result in `CF_EXITCODE`), plus a keep-window-on-top option.
 - Settings window is now two columns (1080 x 560) so it fits 768-px screens.

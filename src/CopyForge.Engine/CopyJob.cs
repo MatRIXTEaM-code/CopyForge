@@ -851,7 +851,8 @@ public sealed class CopyJob
 
 	private bool IsVersionsDir(string fullName)
 	{
-		return _versionsRoot != null && string.Equals(fullName.TrimEnd(Path.DirectorySeparatorChar), _versionsRoot, StringComparison.OrdinalIgnoreCase);
+		string trimmed = fullName.TrimEnd(Path.DirectorySeparatorChar);
+		return string.Equals(Path.GetFileName(trimmed), Parity.DirName, StringComparison.OrdinalIgnoreCase) || (_versionsRoot != null && string.Equals(trimmed, _versionsRoot, StringComparison.OrdinalIgnoreCase));
 	}
 
 	/// <summary>Keeps the old copy of a file that is about to be replaced or deleted, under .cf_versions\date_time\ in the destination.</summary>

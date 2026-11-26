@@ -335,6 +335,37 @@ internal static class Program
 				Check("versions keep the replaced and the deleted file", vr.FilesFailed == 0 && kept.Any(k => File.ReadAllText(k) == "one") && kept.Any(k => File.ReadAllText(k) == "bee") && File.ReadAllText(Directory.GetFiles(vdst, "a.txt", SearchOption.TopDirectoryOnly).First()) == "TWO-longer", string.Join(",", kept.Select(Path.GetFileName)) + " errs " + string.Join("|", vr.Errors));
 				var vr2 = new CopyJob(new JobOptions { Sources = new List<string> { vsrc + Path.DirectorySeparatorChar }, Destination = vdst, Mode = JobMode.Sync, KeepVersions = true }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
 				Check("a later sync does not delete the versions folder", Directory.Exists(Path.Combine(vdst, ".cf_versions")) && Directory.GetFiles(Path.Combine(vdst, ".cf_versions"), "*", SearchOption.AllDirectories).Length == kept.Length);
+				{
+					string pr = Path.Combine(root, "par"); Directory.CreateDirectory(pr);
+					var rnd = new Random(7);
+					byte[] big = new byte[5_000_000 + 123]; rnd.NextBytes(big);
+					byte[] small = new byte[1000]; rnd.NextBytes(small);
+					File.WriteAllBytes(Path.Combine(pr, "big.bin"), big);
+					File.WriteAllBytes(Path.Combine(pr, "small.bin"), small);
+					File.WriteAllBytes(Path.Combine(pr, "empty.bin"), new byte[0]);
+					var pres = Parity.Protect(pr, 10, null, CancellationToken.None);
+					Check("parity written for every file", pres.Written == 3 && pres.Problems.Count == 0, string.Join("|", pres.Problems));
+					Check("parity run again skips current files", Parity.Protect(pr, 10, null, CancellationToken.None).Skipped == 3);
+					Check("parity check finds nothing wrong in good files", Parity.Repair(pr, true, null, CancellationToken.None).Damaged == 0);
+					using (var fs = new FileStream(Path.Combine(pr, "big.bin"), FileMode.Open, FileAccess.Write)) { fs.Position = 1_200_000; fs.Write(new byte[150_000]); fs.Position = big.Length - 10; fs.Write(new byte[10]); }
+					using (var fs = new FileStream(Path.Combine(pr, "small.bin"), FileMode.Open, FileAccess.Write)) { fs.Position = 100; fs.Write(new byte[50]); }
+					var chk = Parity.Repair(pr, true, null, CancellationToken.None);
+					Check("parity check reports the damage and changes nothing", chk.Damaged == 2 && !File.ReadAllBytes(Path.Combine(pr, "big.bin")).SequenceEqual(big));
+					var fix = Parity.Repair(pr, false, null, CancellationToken.None);
+					Check("repair rebuilds a damaged stretch and the short last block", fix.Repaired == 2 && fix.Unrepairable == 0 && File.ReadAllBytes(Path.Combine(pr, "big.bin")).SequenceEqual(big) && File.ReadAllBytes(Path.Combine(pr, "small.bin")).SequenceEqual(small), string.Join("|", fix.Problems));
+					using (var fs = new FileStream(Path.Combine(pr, "big.bin"), FileMode.Open, FileAccess.Write)) { fs.Position = 100; fs.Write(new byte[3_000_000]); }
+					var lost = Parity.Repair(pr, false, null, CancellationToken.None);
+					Check("too much damage is reported, not hidden", lost.Unrepairable == 1 && !File.ReadAllBytes(Path.Combine(pr, "big.bin")).SequenceEqual(big));
+					var sc = Directory.GetFiles(Path.Combine(pr, ".cf_parity"), "small.bin.cfpar", SearchOption.AllDirectories).First();
+					byte[] scb = File.ReadAllBytes(sc); scb[40] ^= 0xFF; File.WriteAllBytes(sc, scb);
+					using (var fs = new FileStream(Path.Combine(pr, "small.bin"), FileMode.Open, FileAccess.Write)) { fs.Write(new byte[5]); }
+					Check("damaged repair data is refused", Parity.Repair(pr, false, null, CancellationToken.None).Unrepairable >= 2);
+					string pd = Path.Combine(root, "pardst"); Directory.CreateDirectory(Path.Combine(pd, "x"));
+					File.WriteAllText(Path.Combine(pd, "x", "keep.txt"), "k"); Parity.Protect(pd, 5, null, CancellationToken.None);
+					var psrc = Path.Combine(root, "parsrc"); Directory.CreateDirectory(psrc);
+					new CopyJob(new JobOptions { Sources = new List<string> { psrc + Path.DirectorySeparatorChar }, Destination = pd, Mode = JobMode.Sync }).RunAsync(CancellationToken.None).GetAwaiter().GetResult();
+					Check("sync leaves the repair data folder alone", Directory.Exists(Path.Combine(pd, ".cf_parity")));
+				}
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}
