@@ -10,6 +10,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using CopyForge.Engine;
+using CopyForge.Engine.Net;
 
 namespace CopyForge.App;
 
@@ -660,6 +661,82 @@ public sealed class MainForm : Form
 
 	private NotifyIcon? _tray;
 
+	private LocalSendReceiver? _ls;
+
+	private string _lsFolder = "";
+
+	private CancellationTokenSource? _lsCts;
+
+	private static string LsCertPath => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "CopyForge", "agent", "localsend-cert.pfx");
+
+	/// <summary>Starts, restarts or stops the LocalSend receiver to match the settings.</summary>
+	private void ApplyLocalSend()
+	{
+		_lsCts?.Cancel();
+		_lsCts = null;
+		_ls = null;
+		if (!_cfg.LocalSendOn)
+		{
+			return;
+		}
+		string folder = _cfg.LocalSendFolder.Trim();
+		if (folder.Length == 0)
+		{
+			folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads", "LocalSend");
+		}
+		_lsFolder = folder;
+		string alias = (_cfg.LocalSendAlias.Length > 0) ? _cfg.LocalSendAlias : ("CopyForge " + Environment.MachineName);
+		try
+		{
+			LocalSendReceiver rcv = new LocalSendReceiver(folder, alias, _cfg.LocalSendPin, AskLocalSend, System.Net.IPAddress.Any, 53317, LsCertPath, discovery: true);
+			rcv.Log += delegate(string m)
+			{
+				try
+				{
+					BeginInvoke(delegate
+					{
+						_log.Add("LOCALSEND  -  " + m, Theme.Dim);
+					});
+				}
+				catch
+				{
+				}
+			};
+			rcv.Start();
+			CancellationTokenSource cts = new CancellationTokenSource();
+			_lsCts = cts;
+			_ls = rcv;
+			_ = Task.Run(() => rcv.RunAsync(cts.Token));
+			_log.Add("LOCALSEND  -  receiving into " + folder + " as '" + alias + "'", Theme.Accent);
+		}
+		catch (Exception ex)
+		{
+			_log.Add("LOCALSEND could not start: " + ex.Message + " (is the LocalSend app open on this PC?)", Theme.Warn);
+		}
+	}
+
+	private bool AskLocalSend(string who, string ip, int count, long bytes)
+	{
+		if (_cfg.LocalSendPin.Length > 0)
+		{
+			return true;
+		}
+		bool answer = false;
+		try
+		{
+			Invoke(delegate
+			{
+				ShowMain();
+				answer = HudDialog.Confirm(this, "INCOMING FILES", $"{who} ({ip}) wants to send {count:N0} file(s), {Theme.Bytes(bytes)}.\n\nThey will be saved into:\n{_lsFolder}", danger: false, "ACCEPT", "DECLINE");
+			});
+		}
+		catch
+		{
+			answer = false;
+		}
+		return answer;
+	}
+
 	private CancellationTokenSource _plugCts = new CancellationTokenSource();
 
 	private NotifyIcon EnsureTray()
@@ -723,6 +800,19 @@ public sealed class MainForm : Form
 		}
 		menu.Items.Add(run);
 		menu.Items.Add(remove);
+		menu.Items.Add("LocalSend...", null, delegate
+		{
+			ShowMain();
+			OpenLocalSend();
+		});
+	}
+
+	private void OpenLocalSend()
+	{
+		using LocalSendForm f = new LocalSendForm(_cfg, () => _fSrc.Lines.Where((string l) => !string.IsNullOrWhiteSpace(l)).ToList());
+		f.ShowDialog(this);
+		SaveSettings();
+		ApplyLocalSend();
 	}
 
 	private void SaveCurrentAsPreset()
@@ -831,6 +921,7 @@ public sealed class MainForm : Form
 		{
 			_anim.Dispose();
 			_plugCts.Cancel();
+			_lsCts?.Cancel();
 			_tray?.Dispose();
 			_bgCache?.Dispose();
 			_cts?.Dispose();
@@ -874,6 +965,10 @@ public sealed class MainForm : Form
 			using SettingsForm settingsForm = new SettingsForm(_cfg);
 			settingsForm.ShowDialog(this);
 			base.TopMost = _cfg.AlwaysOnTop;
+			if (settingsForm.RequestLocalSend)
+			{
+				OpenLocalSend();
+			}
 			_cfg.Save();
 			UpdateVerifyLabel();
 		};
@@ -972,6 +1067,7 @@ public sealed class MainForm : Form
 		base.Shown += delegate
 		{
 			EnsureTray().Visible = true;
+			ApplyLocalSend();
 		};
 		base.FormClosing += delegate(object? _, FormClosingEventArgs e)
 		{

@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.11.0
+- LocalSend window (tray menu or Settings > LocalSend...): receive settings (folder, device name, PIN), an accept/decline prompt in the main window for every incoming transfer (no prompt when a PIN is set), and a device list with Find devices / Send for the files and folders in the main window's source list.
+- `cfcopy lsfind` lists LocalSend devices; `cfcopy lssend SOURCE... --to DEVICE [--pin PIN]` sends files or folders (SHA-256 included, device certificate checked against the announced fingerprint).
+
 ## 3.10.0
 - `cfcopy localsend FOLDER`: receive files from the LocalSend app (protocol v2, HTTPS, multicast discovery). Asks before accepting each transfer; `--pin` makes senders enter a PIN and `--auto-accept` (needs a PIN) skips the question. File names are cleaned, nothing is overwritten, only the accepted sender can upload, SHA-256 is checked when the sender gives it.
 - Tray icon (always present while CopyForge runs): save the current job as a preset, run or remove presets from its menu. Running a preset asks the same confirmation as a normal job.

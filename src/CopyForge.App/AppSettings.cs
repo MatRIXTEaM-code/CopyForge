@@ -55,6 +55,14 @@ internal sealed class AppSettings
 
 	public bool CheckOnPlug { get; set; }
 
+	public bool LocalSendOn { get; set; }
+
+	public string LocalSendFolder { get; set; } = "";
+
+	public string LocalSendAlias { get; set; } = "";
+
+	public string LocalSendPin { get; set; } = "";
+
 	public int ParityPct { get; set; }
 
 	public int ResumeMB { get; set; } = 256;

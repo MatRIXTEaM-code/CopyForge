@@ -135,6 +135,11 @@ internal sealed class SettingsForm : Form
 		Text = "Check a plugged-in drive against its repair data (if it has any)"
 	};
 
+	private readonly HudButton _bLocalSend = new HudButton
+	{
+		Text = "LocalSend..."
+	};
+
 	private readonly HudCheck _chkTop = new HudCheck
 	{
 		Text = "Keep the CopyForge window on top"
@@ -208,6 +213,8 @@ internal sealed class SettingsForm : Form
 		Accent = Theme.Accent
 	};
 
+	public bool RequestLocalSend { get; private set; }
+
 	private bool _loading = true;
 
 	public SettingsForm(AppSettings cfg)
@@ -225,7 +232,7 @@ internal sealed class SettingsForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _chkPlug, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
+		_panel.Controls.AddRange(_lblMethod, _segMethod, _lblVerify, _segVerify, _chkClone, _chkEject, _chkDirect, _stLimit, _chkSkipVerify, _chkLog, _chkShutdown, _chkVersions, _stResume, _stParity, _bRepair, _bLocalSend, _chkPlug, _chkTop, _lblHook, _fHook, _stChunks, _stRetries, _stWait, _chkManifest, _chkSign, _chkDelta, _chkAuto, _chkVss, _chkShell, _lblInfo, _bReset, _bAudit, _bClose);
 		_lblMethod.SetBounds(20, 42, 300, 14);
 		_segMethod.SetBounds(20, 60, 500, 28);
 		_stChunks.SetBounds(20, 104, 300, 26);
@@ -259,6 +266,7 @@ internal sealed class SettingsForm : Form
 		_bAudit.SetBounds(146, 510, 170, 34);
 		_bClose.SetBounds(930, 510, 130, 34);
 		_bRepair.SetBounds(332, 510, 220, 34);
+		_bLocalSend.SetBounds(560, 510, 150, 34);
 		_segMethod.SelectedIndex = Math.Clamp(cfg.MethodIndex, 0, 2);
 		_segVerify.SelectedIndex = Math.Clamp(cfg.VerifyAlgoIndex, 0, 3);
 		_chkClone.Checked = cfg.BlockClone;
@@ -477,6 +485,11 @@ internal sealed class SettingsForm : Form
 			{
 				_cfg.ParityPct = (int)_stParity.Value;
 			}
+		};
+		_bLocalSend.Click += delegate
+		{
+			RequestLocalSend = true;
+			Close();
 		};
 		_bRepair.Click += async delegate
 		{

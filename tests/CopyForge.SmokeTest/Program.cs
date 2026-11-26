@@ -406,6 +406,25 @@ internal static class Program
 					var back = System.Text.Json.JsonSerializer.Deserialize<JobOptions>(System.Text.Json.JsonSerializer.Serialize(jo))!;
 					Check("a job survives being saved as a preset (JSON)", back.Mode == JobMode.Sync && back.VerifyAlgo == VerifyAlgo.Blake3 && back.KeepVersions && back.LimitMBps == 50 && back.Sources.Count == 2 && back.ExtraDestinations[0] == "E:\\y" && back.Include == "*.doc" && back.Destination == "D:\\x");
 				}
+				{
+					string lrd = Path.Combine(root, "lsrecv"); string lsd = Path.Combine(root, "lssend", "Album"); Directory.CreateDirectory(lrd); Directory.CreateDirectory(Path.Combine(lsd, "in"));
+					byte[] ld1 = new byte[700_000]; new Random(5).NextBytes(ld1); File.WriteAllBytes(Path.Combine(lsd, "a.bin"), ld1); File.WriteAllText(Path.Combine(lsd, "in", "b.txt"), "bee");
+					bool yes = true;
+					var rc = new LocalSendReceiver(lrd, "RX", "42", (a1, b1, c1, d1x) => yes, System.Net.IPAddress.Loopback, 0, Path.Combine(root, "ls2.pfx"), false);
+					rc.Start(); using var cc = new CancellationTokenSource(); var rrun = rc.RunAsync(cc.Token);
+					var peer = new LsPeer("RX", "127.0.0.1", rc.Port, "https", rc.Fingerprint, "desktop");
+					long lastProg = 0;
+					var okr = LocalSendClient.SendAsync(peer, "TX", "42", new[] { lsd }, null, (n, t2) => lastProg = n, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend client sends a folder that arrives intact", okr.Ok && okr.Files == 2 && File.ReadAllBytes(Path.Combine(lrd, "Album", "a.bin")).SequenceEqual(ld1) && File.ReadAllText(Path.Combine(lrd, "Album", "in", "b.txt")) == "bee", okr.Message);
+					Check("localsend client reports progress", lastProg > 0);
+					Check("localsend client refuses a certificate that is not the announced one", !LocalSendClient.SendAsync(peer with { Fingerprint = new string('a', 64) }, "TX", "42", new[] { lsd }, null, null, CancellationToken.None).GetAwaiter().GetResult().Ok);
+					var bad = LocalSendClient.SendAsync(peer, "TX", "00", new[] { lsd }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend client reports a wrong PIN", !bad.Ok && bad.Message.Contains("PIN"), bad.Message);
+					yes = false;
+					var dec = LocalSendClient.SendAsync(peer, "TX", "42", new[] { lsd }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend client reports a declined transfer", !dec.Ok && dec.Message.Contains("declined"), dec.Message);
+					cc.Cancel();
+				}
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}
