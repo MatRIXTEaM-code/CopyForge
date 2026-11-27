@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 using CopyForge.Engine;
 
@@ -43,6 +44,13 @@ internal sealed class HistoryForm : Form
 		Text = "Copy"
 	};
 
+	private readonly HudButton _bRecheck = new HudButton
+	{
+		Text = "Re-check newest"
+	};
+
+	private bool _rechecking;
+
 	private readonly HudButton _bClear = new HudButton
 	{
 		Text = "Clear history",
@@ -81,7 +89,7 @@ internal sealed class HistoryForm : Form
 		NativeUi.DarkScroll(_rtb);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bClear, _bClose, _stat);
+		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bRecheck, _bClear, _bClose, _stat);
 		_panel.Resize += delegate
 		{
 			DoLayout();
@@ -114,6 +122,61 @@ internal sealed class HistoryForm : Form
 				{
 					SetStat("COPY FAILED: " + ex.Message, Theme.Bad);
 				}
+			}
+		};
+		_bRecheck.Click += async delegate
+		{
+			if (_rechecking)
+			{
+				return;
+			}
+			HistoryEntry e = JobHistory.Read(1, _search.Text).FirstOrDefault();
+			if (e == null)
+			{
+				SetStat("NOTHING TO RE-CHECK", Theme.Warn);
+				return;
+			}
+			if (e.Destination.Length == 0 || e.Mode.Equals("delete", StringComparison.OrdinalIgnoreCase) || e.Mode.Equals("move", StringComparison.OrdinalIgnoreCase))
+			{
+				SetStat("A " + e.Mode.ToUpperInvariant() + " JOB CANNOT BE RE-CHECKED", Theme.Warn);
+				return;
+			}
+			List<string> present = e.Sources.Where((string x) => System.IO.File.Exists(x) || System.IO.Directory.Exists(x)).ToList();
+			if (present.Count == 0)
+			{
+				SetStat("THE SOURCES NO LONGER EXIST", Theme.Warn);
+				return;
+			}
+			_rechecking = true;
+			SetStat("RE-CHECKING...", Theme.Accent);
+			try
+			{
+				long diff = 0L;
+				long total = 0L;
+				foreach (string dest in new string[1] { e.Destination }.Concat(e.ExtraDestinations))
+				{
+					JobOptions o = new JobOptions();
+					o.Mode = JobMode.Copy;
+					o.DryRun = true;
+					o.Sources = present;
+					o.Destination = dest;
+					JobResult jr = await Task.Run(() => new CopyJob(o).RunAsync(System.Threading.CancellationToken.None));
+					if (jr.Preview != null)
+					{
+						diff += jr.Preview.CopyCount + jr.Preview.DeleteCount;
+						total += jr.Preview.CopyCount + jr.Preview.SkipCount;
+					}
+					diff += jr.FilesFailed;
+				}
+				SetStat((diff == 0L) ? $"RE-CHECK: IDENTICAL ({total:N0} FILES)" : $"RE-CHECK: {diff:N0} FILE(S) MISSING OR DIFFERENT", (diff == 0L) ? Theme.Ok : Theme.Bad);
+			}
+			catch (Exception ex)
+			{
+				SetStat("RE-CHECK FAILED: " + ex.Message, Theme.Bad);
+			}
+			finally
+			{
+				_rechecking = false;
 			}
 		};
 		_bClear.Click += delegate
@@ -174,8 +237,9 @@ internal sealed class HistoryForm : Form
 			_bRefresh.SetBounds(12, y, 110, 36);
 			_bCopy.SetBounds(130, y, 110, 36);
 			_bClear.SetBounds(248, y, 140, 36);
+			_bRecheck.SetBounds(396, y, 150, 36);
 			_bClose.SetBounds(width - 12 - 120, y, 120, 36);
-			_stat.SetBounds(404, y, Math.Max(10, width - 404 - 144), 36);
+			_stat.SetBounds(554, y, Math.Max(10, width - 554 - 144), 36);
 		}
 	}
 

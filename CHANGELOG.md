@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.16.0
+- History window: "Re-check newest" compares the newest (searched) job's sources with its destination(s) again and shows identical / how many differ. Size and date comparison, not content; not for move or delete jobs.
+
 ## 3.15.0
 - `--on-error SCRIPT` (and a Settings field): run a script only when a job ends with errors or is cancelled; exit code in CF_EXITCODE.
 - `cfcopy recheck [N]`: compare the Nth most recent job's sources with its destination(s) again (changes nothing; exit 1 if anything is missing or different). Not available for move or delete jobs.
