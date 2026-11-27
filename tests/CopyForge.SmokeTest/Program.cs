@@ -448,6 +448,11 @@ internal static class Program
 					rx.Conflict = LsConflict.Rename; rx.ConflictFor = who => who == "TX" ? LsConflict.Skip : null;
 					var r4 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
 					Check("localsend per-device rule overrides the default", r4.Ok && File.ReadAllText(Path.Combine(cd, "Album", "a.bin")) == "OLD" && Directory.GetFiles(cd, "*", SearchOption.AllDirectories).Length == 2, r4.Message);
+					rx.ConflictFor = null; rx.HashLog = true; Directory.Delete(cd, true); Directory.CreateDirectory(cd);
+					var r5 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					string hl = Path.Combine(cd, "received.sha256");
+					var hv = File.Exists(hl) ? HashFile.VerifyAsync(hl, cd, 2, null, CancellationToken.None).GetAwaiter().GetResult() : null;
+					Check("localsend hash log lists received files and verifies", r5.Ok && hv != null && hv.Ok == 2 && hv.Bad.Count == 0 && hv.Missing.Count == 0, hv == null ? "no log" : hv.Ok + " ok");
 					Check("localsend parses conflict names", LocalSendReceiver.ParseConflict("skip") == LsConflict.Skip && LocalSendReceiver.ParseConflict("Overwrite") == LsConflict.Overwrite && LocalSendReceiver.ParseConflict("x") == LsConflict.Rename);
 					cx.Cancel();
 				}

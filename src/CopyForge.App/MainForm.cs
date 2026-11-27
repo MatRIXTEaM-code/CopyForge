@@ -735,21 +735,34 @@ public sealed class MainForm : Form
 
 	private readonly List<string> _lsRecent = new List<string>();
 
-	/// <summary>Trusted entries may carry a per-device rule: "Phone:skip" (or :overwrite / :rename).</summary>
-	private static string TrustName(string entry)
+	/// <summary>Trusted entries may carry a per-device rule: "Phone:skip" (or :overwrite / :rename). Any other colon stays part of the name.</summary>
+	private static (string Name, CopyForge.Engine.Net.LsConflict? Rule) SplitTrust(string entry)
 	{
 		int i = entry.LastIndexOf(':');
-		return (i > 0 ? entry.Substring(0, i) : entry).Trim();
+		if (i > 0)
+		{
+			string tail = entry.Substring(i + 1).Trim().ToLowerInvariant();
+			if (tail is "rename" or "skip" or "overwrite" or "replace")
+			{
+				return (entry.Substring(0, i).Trim(), CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(tail));
+			}
+		}
+		return (entry.Trim(), null);
+	}
+
+	private static string TrustName(string entry)
+	{
+		return SplitTrust(entry).Name;
 	}
 
 	private CopyForge.Engine.Net.LsConflict? ConflictForDevice(string who)
 	{
 		foreach (string t in _cfg.LocalSendTrusted)
 		{
-			int i = t.LastIndexOf(':');
-			if (i > 0 && t.Substring(0, i).Trim().Equals(who, StringComparison.OrdinalIgnoreCase))
+			(string name, CopyForge.Engine.Net.LsConflict? rule) = SplitTrust(t);
+			if (rule.HasValue && name.Equals(who, StringComparison.OrdinalIgnoreCase))
 			{
-				return CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(t.Substring(i + 1));
+				return rule;
 			}
 		}
 		return null;

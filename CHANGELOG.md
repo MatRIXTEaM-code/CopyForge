@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.21.0
+
+- LocalSend receiving: `cfcopy localsend --hash-log` appends the SHA-256 of every received file to received.sha256 in the receive folder (check it later with `cfcopy hashcheck`).
+- History window: "Save as preset" turns the newest job into a preset using its saved options.
+- A trusted-device entry only counts as a rule when it ends in :rename, :skip or :overwrite, so device names containing a colon keep working; overwrite never replaces received.sha256.
+- 1 new smoke test (99 total).
+
 ## 3.20.0
 
 - Job history now stores each job's full options, so "Copy robocopy cmd" in the History window includes filters, overwrite mode, threads, retries etc. (jobs recorded before this version still give a basic command).

@@ -59,6 +59,11 @@ internal sealed class HistoryForm : Form
 		Text = "Check .sha256..."
 	};
 
+	private readonly HudButton _bPreset = new HudButton
+	{
+		Text = "Save as preset"
+	};
+
 	private bool _rechecking;
 
 	private readonly HudButton _bClear = new HudButton
@@ -92,14 +97,14 @@ internal sealed class HistoryForm : Form
 		BackColor = Theme.Bg;
 		base.Padding = new Padding(10);
 		base.StartPosition = FormStartPosition.CenterParent;
-		base.ClientSize = new Size(1040, 700);
+		base.ClientSize = new Size(1300, 700);
 		MinimumSize = SizeFromClientSize(new Size(760, 440));
 		base.KeyPreview = true;
 		NativeUi.DarkTitleBar(this);
 		NativeUi.DarkScroll(_rtb);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bRecheck, _bRobo, _bHash, _bClear, _bClose, _stat);
+		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bRecheck, _bRobo, _bHash, _bPreset, _bClear, _bClose, _stat);
 		_panel.Resize += delegate
 		{
 			DoLayout();
@@ -213,6 +218,30 @@ internal sealed class HistoryForm : Form
 				SetStat("COPY FAILED: " + ex.Message, Theme.Bad);
 			}
 		};
+		_bPreset.Click += delegate
+		{
+			HistoryEntry e = JobHistory.Read(1, _search.Text).FirstOrDefault();
+			if (e == null || e.Options == null)
+			{
+				SetStat("NEWEST JOB HAS NO SAVED OPTIONS (OLDER ENTRY)", Theme.Warn);
+				return;
+			}
+			static string Leaf(string p)
+			{
+				string t = p.TrimEnd('\\', '/');
+				string n = System.IO.Path.GetFileName(t);
+				return n.Length > 0 ? n : t;
+			}
+			string name = e.Mode + " " + Leaf(e.Sources.FirstOrDefault() ?? "") + " -> " + Leaf(e.Destination);
+			if (Presets.Add(name, e.Options, out string why))
+			{
+				SetStat("PRESET SAVED: " + name, Theme.Ok);
+			}
+			else
+			{
+				SetStat(why.ToUpperInvariant(), Theme.Warn);
+			}
+		};
 		_bHash.Click += async delegate
 		{
 			using OpenFileDialog dlg = new OpenFileDialog
@@ -297,8 +326,9 @@ internal sealed class HistoryForm : Form
 			_bRecheck.SetBounds(396, y, 150, 36);
 			_bRobo.SetBounds(554, y, 170, 36);
 			_bHash.SetBounds(732, y, 150, 36);
+			_bPreset.SetBounds(890, y, 140, 36);
 			_bClose.SetBounds(width - 12 - 120, y, 120, 36);
-			_stat.SetBounds(890, y, Math.Max(10, width - 890 - 144), 36);
+			_stat.SetBounds(1038, y, Math.Max(10, width - 1038 - 144), 36);
 		}
 	}
 

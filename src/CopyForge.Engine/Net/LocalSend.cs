@@ -70,6 +70,9 @@ public sealed class LocalSendReceiver
 	/// <summary>Optional per-sender override (by alias); return null to use <see cref="Conflict"/>.</summary>
 	public Func<string, LsConflict?>? ConflictFor { get; set; }
 
+	/// <summary>When true, the SHA-256 of every received file is appended to received.sha256 in the receive folder (sha256sum format; check later with 'cfcopy hashcheck').</summary>
+	public bool HashLog { get; set; }
+
 	public static LsConflict ParseConflict(string? s)
 	{
 		return (s ?? "").Trim().ToLowerInvariant() switch
@@ -692,7 +695,7 @@ public sealed class LocalSendReceiver
 				string ext = Path.GetExtension(final);
 				bool exists = File.Exists(final);
 				bool overwrite = false;
-				if (exists && conflict == LsConflict.Overwrite && !Directory.Exists(final) && !File.Exists(final + ".cfpart") && used.Add(final))
+				if (exists && conflict == LsConflict.Overwrite && !string.Equals(Path.GetFileName(final), "received.sha256", StringComparison.OrdinalIgnoreCase) && !Directory.Exists(final) && !File.Exists(final + ".cfpart") && used.Add(final))
 				{
 					overwrite = true;
 				}
@@ -818,6 +821,7 @@ public sealed class LocalSendReceiver
 		Directory.CreateDirectory(Path.GetDirectoryName(it.Final)!);
 		long written = 0L;
 		bool ok;
+		string gotHex = "";
 		using (SHA256 sha = SHA256.Create())
 		{
 			using (FileStream fs = new FileStream(part, FileMode.Create, FileAccess.Write, FileShare.None, 1 << 16, useAsync: true))
@@ -842,6 +846,7 @@ public sealed class LocalSendReceiver
 				await RespondAsync(s, 400, "Bad Request", null, ct).ConfigureAwait(false);
 				return false;
 			}
+			gotHex = Convert.ToHexString(sha.Hash!).ToLowerInvariant();
 			if (it.Sha256 != null && !string.Equals(Convert.ToHexString(sha.Hash!), it.Sha256, StringComparison.OrdinalIgnoreCase))
 			{
 				try
@@ -857,6 +862,20 @@ public sealed class LocalSendReceiver
 			}
 		}
 		File.Move(part, it.Final, overwrite: it.Overwrite);
+		if (HashLog && gotHex.Length > 0)
+		{
+			try
+			{
+				string rel = Path.GetRelativePath(_root, it.Final).Replace('\\', '/');
+				lock (_lock)
+				{
+					File.AppendAllText(Path.Combine(_root, "received.sha256"), gotHex + " *" + rel + "\n");
+				}
+			}
+			catch
+			{
+			}
+		}
 		if (it.Modified.HasValue)
 		{
 			try
