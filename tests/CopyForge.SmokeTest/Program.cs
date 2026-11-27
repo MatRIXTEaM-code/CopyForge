@@ -425,6 +425,28 @@ internal static class Program
 					Check("localsend client reports a declined transfer", !dec.Ok && dec.Message.Contains("declined"), dec.Message);
 					cc.Cancel();
 				}
+				{
+					string cd = Path.Combine(root, "lsconf"); string cs = Path.Combine(root, "lsconfsrc", "Album"); Directory.CreateDirectory(Path.Combine(cd, "Album")); Directory.CreateDirectory(Path.Combine(cs, "in"));
+					byte[] nd = new byte[5000]; new Random(9).NextBytes(nd); File.WriteAllBytes(Path.Combine(cs, "a.bin"), nd); File.WriteAllText(Path.Combine(cs, "in", "b.txt"), "bee");
+					File.WriteAllText(Path.Combine(cd, "Album", "a.bin"), "OLD");
+					bool sawExists = false; string dropName = "";
+					var rx = new LocalSendReceiver(cd, "RX2", "7", (a, b, offers) => { sawExists = offers.Any(o => o.Exists); return offers.Where(o => dropName.Length == 0 || !o.Name.EndsWith(dropName)).Select(o => o.Id).ToList(); }, System.Net.IPAddress.Loopback, 0, Path.Combine(root, "ls3.pfx"), false);
+					rx.Start(); using var cx = new CancellationTokenSource(); var rrx = rx.RunAsync(cx.Token);
+					var pr = new LsPeer("RX2", "127.0.0.1", rx.Port, "https", rx.Fingerprint, "desktop");
+					rx.Conflict = LsConflict.Skip;
+					var r1 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend skip mode keeps the existing file and receives the rest", r1.Ok && File.ReadAllText(Path.Combine(cd, "Album", "a.bin")) == "OLD" && File.ReadAllText(Path.Combine(cd, "Album", "in", "b.txt")) == "bee", r1.Message);
+					var r1b = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend skip mode with nothing new sends nothing", r1b.Ok && r1b.Files == 0 && Directory.GetFiles(cd, "*", SearchOption.AllDirectories).Length == 2, r1b.Message);
+					rx.Conflict = LsConflict.Overwrite;
+					var r2 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend overwrite mode replaces the file in place", r2.Ok && File.ReadAllBytes(Path.Combine(cd, "Album", "a.bin")).SequenceEqual(nd) && sawExists && Directory.GetFiles(cd, "*", SearchOption.AllDirectories).Length == 2, r2.Message);
+					Directory.Delete(cd, true); Directory.CreateDirectory(cd); rx.Conflict = LsConflict.Rename; dropName = "b.txt";
+					var r3 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend unticked files are not received", r3.Ok && File.Exists(Path.Combine(cd, "Album", "a.bin")) && !File.Exists(Path.Combine(cd, "Album", "in", "b.txt")), r3.Message);
+					Check("localsend parses conflict names", LocalSendReceiver.ParseConflict("skip") == LsConflict.Skip && LocalSendReceiver.ParseConflict("Overwrite") == LsConflict.Overwrite && LocalSendReceiver.ParseConflict("x") == LsConflict.Rename);
+					cx.Cancel();
+				}
 				using (var ka = new KeepAwake()) { }
 				Check("keep-awake starts and stops cleanly", true);
 			}

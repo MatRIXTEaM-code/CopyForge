@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.19.0
+
+- LocalSend receiving: choose what happens when a file already exists - rename (default), skip or overwrite (button in the LocalSend window, `--on-conflict` for `cfcopy localsend`).
+- LocalSend receiving: the incoming-files window now lists every file with a tick box, so you can untick what you do not want before accepting.
+- History window: "Copy robocopy cmd" puts the nearest robocopy command for the newest job on the clipboard; "Check .sha256..." verifies a checksum file.
+- 5 new smoke tests (97 total).
+
 ## 3.18.0
 - `cfcopy hashmake FOLDER [--out FILE]` writes a standard SHA-256 checksum file (sha256sum format, works with `sha256sum -c`); `cfcopy hashcheck FILE.sha256 [--to FOLDER]` verifies a folder against any such file (e.g. one that came with a download or from another PC). Paths that leave the folder are refused.
 - `--show-robocopy` on copy / move / sync prints the nearest robocopy command(s) plus notes on what robocopy cannot do (verify, versions, delta, manifest, speed limit), and exits without copying.

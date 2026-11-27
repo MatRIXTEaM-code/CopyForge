@@ -67,6 +67,8 @@ internal sealed class AppSettings
 
 	public string LocalSendPeerPin { get; set; } = "";
 
+	public string LocalSendConflict { get; set; } = "rename";
+
 	public System.Collections.Generic.List<string> LocalSendTrusted { get; set; } = new System.Collections.Generic.List<string>();
 
 	public int ParityPct { get; set; }

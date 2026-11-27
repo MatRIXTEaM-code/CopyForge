@@ -22,6 +22,15 @@ namespace CopyForge.Engine.Net;
 /// Nothing is stored unless the person at this PC accepts the transfer (or a PIN plus auto-accept was chosen). Files never
 /// overwrite existing ones, names are cleaned, and only the sender that was accepted may upload.
 /// </summary>
+public enum LsConflict
+{
+	Rename,
+	Skip,
+	Overwrite
+}
+
+public sealed record LsOffer(string Id, string Name, long Size, bool Exists);
+
 public sealed class LocalSendReceiver
 {
 	private sealed class Item
@@ -34,6 +43,8 @@ public sealed class LocalSendReceiver
 		public string Token = "";
 		public DateTime? Modified;
 		public bool Done;
+		public bool Overwrite;
+		public bool Exists;
 	}
 
 	private sealed class Session
@@ -52,7 +63,19 @@ public sealed class LocalSendReceiver
 
 	private readonly string _pin;
 
-	private readonly Func<string, string, int, long, bool> _accept;
+	private readonly Func<string, string, IReadOnlyList<LsOffer>, IReadOnlyCollection<string>?> _accept;
+
+	public LsConflict Conflict { get; set; } = LsConflict.Rename;
+
+	public static LsConflict ParseConflict(string? s)
+	{
+		return (s ?? "").Trim().ToLowerInvariant() switch
+		{
+			"skip" => LsConflict.Skip,
+			"overwrite" or "replace" => LsConflict.Overwrite,
+			_ => LsConflict.Rename,
+		};
+	}
 
 	private readonly IPAddress _bind;
 
@@ -75,6 +98,11 @@ public sealed class LocalSendReceiver
 	public event Action<string>? Log;
 
 	public LocalSendReceiver(string root, string alias, string pin, Func<string, string, int, long, bool> accept, IPAddress bind, int port, string certPfx, bool discovery)
+		: this(root, alias, pin, (Func<string, string, IReadOnlyList<LsOffer>, IReadOnlyCollection<string>?>)((al, ip, offers) => accept(al, ip, offers.Count, offers.Sum(o => o.Size)) ? offers.Select(o => o.Id).ToList() : null), bind, port, certPfx, discovery)
+	{
+	}
+
+	public LocalSendReceiver(string root, string alias, string pin, Func<string, string, IReadOnlyList<LsOffer>, IReadOnlyCollection<string>?> accept, IPAddress bind, int port, string certPfx, bool discovery)
 	{
 		_root = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar);
 		Directory.CreateDirectory(_root);
@@ -658,11 +686,26 @@ public sealed class LocalSendReceiver
 				}
 				string stem = Path.Combine(Path.GetDirectoryName(final)!, Path.GetFileNameWithoutExtension(final));
 				string ext = Path.GetExtension(final);
-				for (int n = 1; File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".cfpart") || !used.Add(final); n++)
+				bool exists = File.Exists(final);
+				bool overwrite = false;
+				if (exists && Conflict == LsConflict.Overwrite && !Directory.Exists(final) && !File.Exists(final + ".cfpart") && used.Add(final))
 				{
-					final = stem + " (" + n + ")" + ext;
+					overwrite = true;
 				}
-				items.Add(new Item { Id = fp.Name, Rel = rel, Final = final, Size = size, Sha256 = (sha.Length > 0) ? sha.ToLowerInvariant() : null, Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), Modified = mod });
+				else if (exists && Conflict == LsConflict.Skip)
+				{
+					used.Add(final);
+					items.Add(new Item { Id = fp.Name, Rel = rel, Final = final, Size = size, Token = "", Exists = true, Done = true });
+					continue;
+				}
+				else
+				{
+					for (int n = 1; File.Exists(final) || Directory.Exists(final) || File.Exists(final + ".cfpart") || !used.Add(final); n++)
+					{
+						final = stem + " (" + n + ")" + ext;
+					}
+				}
+				items.Add(new Item { Overwrite = overwrite, Exists = exists, Id = fp.Name, Rel = rel, Final = final, Size = size, Sha256 = (sha.Length > 0) ? sha.ToLowerInvariant() : null, Token = Convert.ToHexString(RandomNumberGenerator.GetBytes(16)), Modified = mod });
 			}
 		}
 		catch (JsonException)
@@ -672,6 +715,13 @@ public sealed class LocalSendReceiver
 		if (items.Count == 0)
 		{
 			return (400, "Bad Request", null);
+		}
+		int skippedExisting = items.Count(x => x.Done);
+		items.RemoveAll(x => x.Done);
+		if (items.Count == 0)
+		{
+			Say($"Nothing to receive from {senderAlias} ({ip}): all {skippedExisting:N0} file(s) already exist (skip mode).");
+			return (204, "No Content", null);
 		}
 		long total = 0L;
 		foreach (Item it in items)
@@ -705,7 +755,15 @@ public sealed class LocalSendReceiver
 		bool ok;
 		try
 		{
-			ok = _accept(senderAlias, ipKey, items.Count, total);
+			IReadOnlyCollection<string>? chosen = _accept(senderAlias, ipKey, items.Select(x => new LsOffer(x.Id, x.Rel, x.Size, x.Exists)).ToList());
+			ok = chosen != null && chosen.Count > 0;
+			if (ok && chosen!.Count < items.Count)
+			{
+				HashSet<string> keep = new HashSet<string>(chosen);
+				items.RemoveAll(x => !keep.Contains(x.Id));
+				total = items.Sum(x => x.Size);
+			}
+			ok = ok && items.Count > 0;
 			LsHistory.Add(new LsHistoryEntry { Direction = "received", Device = senderAlias, Address = ipKey, Files = items.Count, Bytes = total, Ok = ok, Message = ok ? "" : "declined" });
 		}
 		catch
@@ -794,7 +852,7 @@ public sealed class LocalSendReceiver
 				return true;
 			}
 		}
-		File.Move(part, it.Final, overwrite: false);
+		File.Move(part, it.Final, overwrite: it.Overwrite);
 		if (it.Modified.HasValue)
 		{
 			try

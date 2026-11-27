@@ -95,6 +95,11 @@ internal sealed class LocalSendForm : Form
 		Hint = "trusted device names, separated by ;  (accepted without asking)"
 	};
 
+	private readonly HudButton _bConflict = new HudButton
+	{
+		Text = "If exists: rename"
+	};
+
 	private readonly HudButton _bCancelSend = new HudButton
 	{
 		Text = "Cancel send",
@@ -134,7 +139,7 @@ internal sealed class LocalSendForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _fTrust, _bCancelSend, _lblStatus, _bClose);
+		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _fTrust, _bConflict, _bCancelSend, _lblStatus, _bClose);
 		_chkRecv.SetBounds(20, 44, 580, 22);
 		_fFolder.SetBounds(20, 78, 450, 28);
 		_bBrowse.SetBounds(480, 76, 120, 32);
@@ -147,7 +152,8 @@ internal sealed class LocalSendForm : Form
 		_bSend.SetBounds(470, 270, 130, 34);
 		_fFav.SetBounds(20, 344, 440, 28);
 		_bCancelSend.SetBounds(470, 310, 130, 34);
-		_fTrust.SetBounds(20, 380, 580, 28);
+		_fTrust.SetBounds(20, 380, 430, 28);
+		_bConflict.SetBounds(460, 378, 140, 32);
 		_lblStatus.SetBounds(20, 416, 430, 56);
 		_bClose.SetBounds(470, 476, 130, 34);
 		_lblStatus.Text = "Receiving asks you before every transfer unless you set a PIN. Allow CopyForge through the Windows firewall for PRIVATE networks only. If the LocalSend app is open on this PC, close it first (both use port 53317).";
@@ -159,6 +165,14 @@ internal sealed class LocalSendForm : Form
 		_fPeerPin.Text = _cfg.LocalSendPeerPin;
 		_fTrust.Text = string.Join("; ", _cfg.LocalSendTrusted);
 		_bSend.Enabled = false;
+		_bConflict.Text = "If exists: " + CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(_cfg.LocalSendConflict).ToString().ToLowerInvariant();
+		_bConflict.Click += delegate
+		{
+			CopyForge.Engine.Net.LsConflict c = CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(_cfg.LocalSendConflict);
+			c = (CopyForge.Engine.Net.LsConflict)(((int)c + 1) % 3);
+			_cfg.LocalSendConflict = c.ToString().ToLowerInvariant();
+			_bConflict.Text = "If exists: " + _cfg.LocalSendConflict;
+		};
 		_loading = false;
 		_chkRecv.CheckedChanged += delegate
 		{

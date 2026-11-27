@@ -49,6 +49,16 @@ internal sealed class HistoryForm : Form
 		Text = "Re-check newest"
 	};
 
+	private readonly HudButton _bRobo = new HudButton
+	{
+		Text = "Copy robocopy cmd"
+	};
+
+	private readonly HudButton _bHash = new HudButton
+	{
+		Text = "Check .sha256..."
+	};
+
 	private bool _rechecking;
 
 	private readonly HudButton _bClear = new HudButton
@@ -89,7 +99,7 @@ internal sealed class HistoryForm : Form
 		NativeUi.DarkScroll(_rtb);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bRecheck, _bClear, _bClose, _stat);
+		_panel.Controls.AddRange(_search, _rtb, _bRefresh, _bCopy, _bRecheck, _bRobo, _bHash, _bClear, _bClose, _stat);
 		_panel.Resize += delegate
 		{
 			DoLayout();
@@ -179,6 +189,53 @@ internal sealed class HistoryForm : Form
 				_rechecking = false;
 			}
 		};
+		_bRobo.Click += delegate
+		{
+			HistoryEntry e = JobHistory.Read(1, _search.Text).FirstOrDefault();
+			if (e == null || e.Destination.Length == 0)
+			{
+				SetStat("NO JOB TO CONVERT", Theme.Warn);
+				return;
+			}
+			JobOptions o = new JobOptions();
+			o.Mode = Enum.TryParse(e.Mode, ignoreCase: true, out JobMode m) ? m : JobMode.Copy;
+			o.Sources = e.Sources.ToList();
+			o.Destination = e.Destination;
+			(List<string> cmds, List<string> notes) = RoboCommand.Build(o);
+			string txt = string.Join(Environment.NewLine, cmds.Concat(notes.Select((string n) => "REM " + n)));
+			try
+			{
+				Clipboard.SetText(txt);
+				SetStat("ROBOCOPY COMMAND COPIED (" + cmds.Count + ")", Theme.Ok);
+			}
+			catch (Exception ex)
+			{
+				SetStat("COPY FAILED: " + ex.Message, Theme.Bad);
+			}
+		};
+		_bHash.Click += async delegate
+		{
+			using OpenFileDialog dlg = new OpenFileDialog
+			{
+				Title = "Checksum file (sha256sum format)",
+				Filter = "Checksum files|*.sha256;*.sha256sum;*.txt|All files|*.*"
+			};
+			if (dlg.ShowDialog(this) != DialogResult.OK)
+			{
+				return;
+			}
+			SetStat("CHECKING HASHES...", Theme.Accent);
+			try
+			{
+				HashFileResult r = await HashFile.VerifyAsync(dlg.FileName, System.IO.Path.GetDirectoryName(dlg.FileName) ?? ".", 0, null, System.Threading.CancellationToken.None);
+				bool good = r.Bad.Count == 0 && r.Missing.Count == 0;
+				SetStat(good ? $"HASHES OK ({r.Ok:N0} FILES)" : $"{r.Bad.Count:N0} BAD, {r.Missing.Count:N0} MISSING OF {r.Checked:N0}", good ? Theme.Ok : Theme.Bad);
+			}
+			catch (Exception ex)
+			{
+				SetStat("HASH CHECK FAILED: " + ex.Message, Theme.Bad);
+			}
+		};
 		_bClear.Click += delegate
 		{
 			if (HudDialog.Confirm(this, "CLEAR HISTORY", "Erase the whole job history?\n\n" + JobHistory.FilePath + "\n\nThis cannot be undone.", danger: true, "ERASE"))
@@ -238,8 +295,10 @@ internal sealed class HistoryForm : Form
 			_bCopy.SetBounds(130, y, 110, 36);
 			_bClear.SetBounds(248, y, 140, 36);
 			_bRecheck.SetBounds(396, y, 150, 36);
+			_bRobo.SetBounds(554, y, 170, 36);
+			_bHash.SetBounds(732, y, 150, 36);
 			_bClose.SetBounds(width - 12 - 120, y, 120, 36);
-			_stat.SetBounds(554, y, Math.Max(10, width - 554 - 144), 36);
+			_stat.SetBounds(890, y, Math.Max(10, width - 890 - 144), 36);
 		}
 	}
 

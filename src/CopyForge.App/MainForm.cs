@@ -697,6 +697,7 @@ public sealed class MainForm : Form
 		try
 		{
 			LocalSendReceiver rcv = new LocalSendReceiver(folder, alias, _cfg.LocalSendPin, AskLocalSend, System.Net.IPAddress.Any, 53317, LsCertPath, discovery: true);
+			rcv.Conflict = CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(_cfg.LocalSendConflict);
 			rcv.Log += delegate(string m)
 			{
 				try
@@ -723,24 +724,25 @@ public sealed class MainForm : Form
 		}
 	}
 
-	private bool AskLocalSend(string who, string ip, int count, long bytes)
+	private IReadOnlyCollection<string>? AskLocalSend(string who, string ip, IReadOnlyList<CopyForge.Engine.Net.LsOffer> offers)
 	{
+		List<string> all = offers.Select(o => o.Id).ToList();
 		if (_cfg.LocalSendPin.Length > 0)
 		{
-			return true;
+			return all;
 		}
 		if (_cfg.LocalSendTrusted.Contains(who, StringComparer.OrdinalIgnoreCase))
 		{
-			return true;
+			return all;
 		}
-		bool answer = false;
+		List<string>? chosen = null;
 		try
 		{
 			Invoke(delegate
 			{
 				ShowMain();
-				answer = HudDialog.Confirm(this, "INCOMING FILES", $"{who} ({ip}) wants to send {count:N0} file(s), {Theme.Bytes(bytes)}.\n\nThey will be saved into:\n{_lsFolder}", danger: false, "ACCEPT", "DECLINE");
-				if (answer && who.Length > 0 && HudDialog.Confirm(this, "TRUST THIS DEVICE?", $"Accept future transfers from \"{who}\" without asking?\n\nDevices are recognised by name only, so anyone on your network who uses the same name would be accepted too.", danger: false, "ALWAYS", "JUST THIS TIME"))
+				chosen = LsPickForm.Pick(this, who, ip, offers, _lsFolder);
+				if (chosen != null && chosen.Count == offers.Count && who.Length > 0 && HudDialog.Confirm(this, "TRUST THIS DEVICE?", $"Accept future transfers from \"{who}\" without asking?\n\nDevices are recognised by name only, so anyone on your network who uses the same name would be accepted too.", danger: false, "ALWAYS", "JUST THIS TIME"))
 				{
 					_cfg.LocalSendTrusted.Add(who);
 					SaveSettings();
@@ -749,9 +751,9 @@ public sealed class MainForm : Form
 		}
 		catch
 		{
-			answer = false;
+			chosen = null;
 		}
-		return answer;
+		return chosen;
 	}
 
 	private CancellationTokenSource _plugCts = new CancellationTokenSource();
