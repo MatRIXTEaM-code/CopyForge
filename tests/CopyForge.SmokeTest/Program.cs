@@ -444,6 +444,29 @@ internal static class Program
 			Check("LocalSend history records a sent transfer", lh.Any((CopyForge.Engine.Net.LsHistoryEntry e) => e.Direction == "sent" && e.Ok));
 			Check("LocalSend history records a received transfer", lh.Any((CopyForge.Engine.Net.LsHistoryEntry e) => e.Direction == "received" && e.Ok));
 		}
+		{
+			string hd = Path.Combine(Path.GetTempPath(), "cf_hash_" + Guid.NewGuid().ToString("N").Substring(0, 6));
+			Directory.CreateDirectory(Path.Combine(hd, "s u b"));
+			File.WriteAllText(Path.Combine(hd, "a.txt"), "hello");
+			File.WriteAllText(Path.Combine(hd, "s u b", "b.txt"), "world");
+			string hf = Path.Combine(hd, "checksums.sha256");
+			int made = HashFile.MakeAsync(hd, hf, 2, null, CancellationToken.None).GetAwaiter().GetResult();
+			Check("hashmake lists both files", made == 2);
+			HashFileResult ok = HashFile.VerifyAsync(hf, hd, 2, null, CancellationToken.None).GetAwaiter().GetResult();
+			Check("hashcheck passes a clean folder", ok.Ok == 2 && ok.Bad.Count == 0 && ok.Missing.Count == 0);
+			File.WriteAllText(Path.Combine(hd, "a.txt"), "hellO");
+			File.Delete(Path.Combine(hd, "s u b", "b.txt"));
+			HashFileResult bad = HashFile.VerifyAsync(hf, hd, 2, null, CancellationToken.None).GetAwaiter().GetResult();
+			Check("hashcheck finds a changed and a missing file", bad.Bad.Count == 1 && bad.Missing.Count == 1);
+			File.WriteAllText(hf, "0000000000000000000000000000000000000000000000000000000000000000 *../../etc/passwd\n");
+			HashFileResult esc = HashFile.VerifyAsync(hf, hd, 1, null, CancellationToken.None).GetAwaiter().GetResult();
+			Check("hashcheck refuses paths that leave the folder", esc.Ok == 0 && esc.Bad.Count + esc.Missing.Count == 1);
+			JobOptions ro = new JobOptions { Mode = JobMode.Sync, Destination = "D:\\Backup", Exclude = "*.tmp;cache/", Threads = 4 };
+			ro.Sources.Add("C:\\Data Files");
+			(System.Collections.Generic.List<string> rcs, System.Collections.Generic.List<string> _) = RoboCommand.Build(ro);
+			Check("robocopy view: sync becomes /MIR with quoting and filters", rcs.Count == 1 && rcs[0].Contains("/MIR") && rcs[0].Contains("\"C:\\Data Files\"") && rcs[0].Contains("/MT:4") && rcs[0].Contains("/XF *.tmp") && rcs[0].Contains("/XD cache"), string.Join(" | ", rcs));
+			try { Directory.Delete(hd, true); } catch { }
+		}
 		Console.WriteLine();
 		Console.WriteLine((_fail == 0) ? $"ALL PASSED ({_pass} checks)" : $"FAILED: {_fail} of {_pass + _fail} checks");
 		return (_fail == 0) ? 0 : 1;

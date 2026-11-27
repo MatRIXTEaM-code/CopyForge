@@ -1,5 +1,9 @@
 # Changelog
 
+## 3.18.0
+- `cfcopy hashmake FOLDER [--out FILE]` writes a standard SHA-256 checksum file (sha256sum format, works with `sha256sum -c`); `cfcopy hashcheck FILE.sha256 [--to FOLDER]` verifies a folder against any such file (e.g. one that came with a download or from another PC). Paths that leave the folder are refused.
+- `--show-robocopy` on copy / move / sync prints the nearest robocopy command(s) plus notes on what robocopy cannot do (verify, versions, delta, manifest, speed limit), and exits without copying.
+
 ## 3.17.0
 - Sync, move and delete confirmations now open a scrollable window listing every file that will be copied/moved and every file that will be deleted (deletions in red), instead of a short text box with five examples. Cancel changes nothing.
 

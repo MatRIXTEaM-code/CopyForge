@@ -5,9 +5,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
-    <Version>3.17.0</Version>
-    <AssemblyVersion>3.17.0.0</AssemblyVersion>
-    <FileVersion>3.17.0.0</FileVersion>
+    <Version>3.18.0</Version>
+    <AssemblyVersion>3.18.0.0</AssemblyVersion>
+    <FileVersion>3.18.0.0</FileVersion>
     <Company>Andrew Williams</Company>
     <Product>CopyForge</Product>
     <Copyright>Copyright (c) 2026 Andrew Williams</Copyright>
