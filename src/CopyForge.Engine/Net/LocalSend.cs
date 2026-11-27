@@ -67,6 +67,9 @@ public sealed class LocalSendReceiver
 
 	public LsConflict Conflict { get; set; } = LsConflict.Rename;
 
+	/// <summary>Optional per-sender override (by alias); return null to use <see cref="Conflict"/>.</summary>
+	public Func<string, LsConflict?>? ConflictFor { get; set; }
+
 	public static LsConflict ParseConflict(string? s)
 	{
 		return (s ?? "").Trim().ToLowerInvariant() switch
@@ -659,6 +662,7 @@ public sealed class LocalSendReceiver
 				return (400, "Bad Request", null);
 			}
 			HashSet<string> used = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+			LsConflict conflict = ConflictFor?.Invoke(senderAlias) ?? Conflict;
 			foreach (JsonProperty fp in files.EnumerateObject())
 			{
 				if (items.Count >= MaxFiles)
@@ -688,11 +692,11 @@ public sealed class LocalSendReceiver
 				string ext = Path.GetExtension(final);
 				bool exists = File.Exists(final);
 				bool overwrite = false;
-				if (exists && Conflict == LsConflict.Overwrite && !Directory.Exists(final) && !File.Exists(final + ".cfpart") && used.Add(final))
+				if (exists && conflict == LsConflict.Overwrite && !Directory.Exists(final) && !File.Exists(final + ".cfpart") && used.Add(final))
 				{
 					overwrite = true;
 				}
-				else if (exists && Conflict == LsConflict.Skip)
+				else if (exists && conflict == LsConflict.Skip)
 				{
 					used.Add(final);
 					items.Add(new Item { Id = fp.Name, Rel = rel, Final = final, Size = size, Token = "", Exists = true, Done = true });

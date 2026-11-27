@@ -197,7 +197,7 @@ internal sealed class HistoryForm : Form
 				SetStat("NO JOB TO CONVERT", Theme.Warn);
 				return;
 			}
-			JobOptions o = new JobOptions();
+			JobOptions o = e.Options ?? new JobOptions();
 			o.Mode = Enum.TryParse(e.Mode, ignoreCase: true, out JobMode m) ? m : JobMode.Copy;
 			o.Sources = e.Sources.ToList();
 			o.Destination = e.Destination;

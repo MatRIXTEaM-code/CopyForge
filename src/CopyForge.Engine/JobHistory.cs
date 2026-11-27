@@ -23,6 +23,9 @@ public sealed class HistoryEntry
 
 	public bool Verify { get; set; }
 
+	/// <summary>Full options of the job (for re-checks and the robocopy view); null in older entries.</summary>
+	public JobOptions? Options { get; set; }
+
 	public string VerifyAlgo { get; set; } = "";
 
 	public bool Finished { get; set; }
@@ -90,7 +93,8 @@ public static class JobHistory
 			ExtraDestinations = (o.ExtraDestinations ?? new List<string>()).ToList(),
 			Verify = o.Verify,
 			VerifyAlgo = (o.Verify ? VerifyAlgos.Name(o.VerifyAlgo) : ""),
-			Problem = rec.Problem ?? ""
+			Problem = rec.Problem ?? "",
+			Options = o
 		};
 		JobResult r = rec.Result;
 		if (r != null)

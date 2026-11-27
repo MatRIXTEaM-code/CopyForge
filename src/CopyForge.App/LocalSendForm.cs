@@ -92,7 +92,7 @@ internal sealed class LocalSendForm : Form
 
 	private readonly HudField _fTrust = new HudField
 	{
-		Hint = "trusted device names, separated by ;  (accepted without asking)"
+		Hint = "trusted devices, separated by ;  (name or name:skip / :overwrite)"
 	};
 
 	private readonly HudButton _bConflict = new HudButton
@@ -123,9 +123,22 @@ internal sealed class LocalSendForm : Form
 
 	private bool _loading = true;
 
-	public LocalSendForm(AppSettings cfg, Func<List<string>> sources)
+	private readonly Func<string>? _recent;
+
+	private readonly Label _lblRecv = new Label
+	{
+		AutoSize = false,
+		BackColor = Theme.Panel,
+		ForeColor = Theme.Accent,
+		Font = Theme.FSmall
+	};
+
+	private readonly System.Windows.Forms.Timer _tick = new System.Windows.Forms.Timer { Interval = 1000 };
+
+	public LocalSendForm(AppSettings cfg, Func<List<string>> sources, Func<string>? recent = null)
 	{
 		_cfg = cfg;
+		_recent = recent;
 		_sources = sources;
 		Text = "CopyForge - LocalSend";
 		BackColor = Theme.Bg;
@@ -139,7 +152,16 @@ internal sealed class LocalSendForm : Form
 		NativeUi.DarkTitleBar(this);
 		_panel.Dock = DockStyle.Fill;
 		base.Controls.Add(_panel);
-		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _fTrust, _bConflict, _bCancelSend, _lblStatus, _bClose);
+		_panel.Controls.AddRange(_chkRecv, _fFolder, _bBrowse, _fAlias, _fPin, _lblSend, _list, _bFind, _bSend, _fPeerPin, _fFav, _fTrust, _bConflict, _bCancelSend, _lblStatus, _lblRecv, _bClose);
+		_lblRecv.SetBounds(20, 476, 440, 34);
+		_tick.Tick += delegate
+		{
+			if (_recent != null)
+			{
+				_lblRecv.Text = _recent();
+			}
+		};
+		_tick.Start();
 		_chkRecv.SetBounds(20, 44, 580, 22);
 		_fFolder.SetBounds(20, 78, 450, 28);
 		_bBrowse.SetBounds(480, 76, 120, 32);
@@ -219,6 +241,11 @@ internal sealed class LocalSendForm : Form
 			{
 				_cfg.LocalSendTrusted = _fTrust.Text.Split(';').Select((string n) => n.Trim()).Where((string n) => n.Length > 0).ToList();
 			}
+		};
+		base.FormClosed += delegate
+		{
+			_tick.Stop();
+			_tick.Dispose();
 		};
 		_bCancelSend.Click += delegate
 		{

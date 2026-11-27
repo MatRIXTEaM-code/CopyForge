@@ -444,6 +444,10 @@ internal static class Program
 					Directory.Delete(cd, true); Directory.CreateDirectory(cd); rx.Conflict = LsConflict.Rename; dropName = "b.txt";
 					var r3 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
 					Check("localsend unticked files are not received", r3.Ok && File.Exists(Path.Combine(cd, "Album", "a.bin")) && !File.Exists(Path.Combine(cd, "Album", "in", "b.txt")), r3.Message);
+					Directory.Delete(cd, true); Directory.CreateDirectory(Path.Combine(cd, "Album")); File.WriteAllText(Path.Combine(cd, "Album", "a.bin"), "OLD"); dropName = "";
+					rx.Conflict = LsConflict.Rename; rx.ConflictFor = who => who == "TX" ? LsConflict.Skip : null;
+					var r4 = LocalSendClient.SendAsync(pr, "TX", "7", new[] { cs }, null, null, CancellationToken.None).GetAwaiter().GetResult();
+					Check("localsend per-device rule overrides the default", r4.Ok && File.ReadAllText(Path.Combine(cd, "Album", "a.bin")) == "OLD" && Directory.GetFiles(cd, "*", SearchOption.AllDirectories).Length == 2, r4.Message);
 					Check("localsend parses conflict names", LocalSendReceiver.ParseConflict("skip") == LsConflict.Skip && LocalSendReceiver.ParseConflict("Overwrite") == LsConflict.Overwrite && LocalSendReceiver.ParseConflict("x") == LsConflict.Rename);
 					cx.Cancel();
 				}

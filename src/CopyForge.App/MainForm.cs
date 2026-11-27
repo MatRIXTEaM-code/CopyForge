@@ -698,8 +698,17 @@ public sealed class MainForm : Form
 		{
 			LocalSendReceiver rcv = new LocalSendReceiver(folder, alias, _cfg.LocalSendPin, AskLocalSend, System.Net.IPAddress.Any, 53317, LsCertPath, discovery: true);
 			rcv.Conflict = CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(_cfg.LocalSendConflict);
+			rcv.ConflictFor = ConflictForDevice;
 			rcv.Log += delegate(string m)
 			{
+				lock (_lsRecent)
+				{
+					_lsRecent.Add(DateTime.Now.ToString("HH:mm:ss") + "  " + m);
+					if (_lsRecent.Count > 20)
+					{
+						_lsRecent.RemoveAt(0);
+					}
+				}
 				try
 				{
 					BeginInvoke(delegate
@@ -724,6 +733,36 @@ public sealed class MainForm : Form
 		}
 	}
 
+	private readonly List<string> _lsRecent = new List<string>();
+
+	/// <summary>Trusted entries may carry a per-device rule: "Phone:skip" (or :overwrite / :rename).</summary>
+	private static string TrustName(string entry)
+	{
+		int i = entry.LastIndexOf(':');
+		return (i > 0 ? entry.Substring(0, i) : entry).Trim();
+	}
+
+	private CopyForge.Engine.Net.LsConflict? ConflictForDevice(string who)
+	{
+		foreach (string t in _cfg.LocalSendTrusted)
+		{
+			int i = t.LastIndexOf(':');
+			if (i > 0 && t.Substring(0, i).Trim().Equals(who, StringComparison.OrdinalIgnoreCase))
+			{
+				return CopyForge.Engine.Net.LocalSendReceiver.ParseConflict(t.Substring(i + 1));
+			}
+		}
+		return null;
+	}
+
+	private string LsLastLines()
+	{
+		lock (_lsRecent)
+		{
+			return string.Join("\n", _lsRecent.Skip(Math.Max(0, _lsRecent.Count - 2)));
+		}
+	}
+
 	private IReadOnlyCollection<string>? AskLocalSend(string who, string ip, IReadOnlyList<CopyForge.Engine.Net.LsOffer> offers)
 	{
 		List<string> all = offers.Select(o => o.Id).ToList();
@@ -731,7 +770,7 @@ public sealed class MainForm : Form
 		{
 			return all;
 		}
-		if (_cfg.LocalSendTrusted.Contains(who, StringComparer.OrdinalIgnoreCase))
+		if (_cfg.LocalSendTrusted.Any((string t) => TrustName(t).Equals(who, StringComparison.OrdinalIgnoreCase)))
 		{
 			return all;
 		}
@@ -909,7 +948,7 @@ public sealed class MainForm : Form
 
 	private void OpenLocalSendCore()
 	{
-		using LocalSendForm f = new LocalSendForm(_cfg, () => _fSrc.Lines.Where((string l) => !string.IsNullOrWhiteSpace(l)).ToList());
+		using LocalSendForm f = new LocalSendForm(_cfg, () => _fSrc.Lines.Where((string l) => !string.IsNullOrWhiteSpace(l)).ToList(), LsLastLines);
 		f.ShowDialog(this);
 		SaveSettings();
 		ApplyLocalSend();

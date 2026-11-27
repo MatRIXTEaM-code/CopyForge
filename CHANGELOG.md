@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.20.0
+
+- Job history now stores each job's full options, so "Copy robocopy cmd" in the History window includes filters, overwrite mode, threads, retries etc. (jobs recorded before this version still give a basic command).
+- LocalSend receiving: per-device file-exists rule - write `Phone:skip` or `Phone:overwrite` in the trusted-devices box (a plain name keeps the default).
+- LocalSend window: a "last received" line shows the latest transfer activity.
+- 1 new smoke test (98 total).
+
 ## 3.19.0
 
 - LocalSend receiving: choose what happens when a file already exists - rename (default), skip or overwrite (button in the LocalSend window, `--on-conflict` for `cfcopy localsend`).
