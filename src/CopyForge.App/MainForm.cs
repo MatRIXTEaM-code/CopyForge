@@ -1485,6 +1485,8 @@ public sealed class MainForm : Form
 		}
 	}
 
+	private PlanPreview? _lastPreview;
+
 	private async Task<string> PreviewTextAsync(JobOptions o)
 	{
 		try
@@ -1496,6 +1498,7 @@ public sealed class MainForm : Form
 			Cursor = Cursors.WaitCursor;
 			SetStatus("CHECKING WHAT WILL CHANGE", Theme.Accent, pulse: true);
 			PlanPreview preview = (await Task.Run(() => new CopyJob(po).RunAsync(CancellationToken.None))).Preview;
+			_lastPreview = preview;
 			if (preview == null)
 			{
 				return "";
@@ -1523,7 +1526,26 @@ public sealed class MainForm : Form
 		{
 			return true;
 		}
+		_lastPreview = null;
 		string text = await PreviewTextAsync(o);
+		PlanPreview? pv = _lastPreview;
+		if (pv != null && (pv.CopyList.Count + pv.DeleteList.Count) > 0 && o.Mode != JobMode.Copy)
+		{
+			string who = string.Join("\n", o.Sources.Take(3)) + ((o.Sources.Count > 3) ? $"\n... and {o.Sources.Count - 3} more" : "");
+			string head = o.Mode switch
+			{
+				JobMode.Delete => (o.RecycleBin ? "Send these to the Recycle Bin?" : "PERMANENTLY DELETE these (no Recycle Bin)?"), 
+				JobMode.Sync => $"Make {o.Destination} an exact mirror of {who.Replace("\n", ", ")}. Extra files in the destination are DELETED.", 
+				_ => $"Move to {o.Destination}. Sources are removed after they are safely copied.", 
+			};
+			string counts = text.Replace("\n\nPREVIEW:  ", "");
+			int cut = counts.IndexOf("\nFor example deleted:", StringComparison.Ordinal);
+			if (cut >= 0)
+			{
+				counts = counts.Substring(0, cut);
+			}
+			return PreviewForm.Ask(this, (o.Mode == JobMode.Delete) ? "Confirm delete" : ((o.Mode == JobMode.Sync) ? "Confirm sync" : "Confirm move"), head + "\n" + counts, pv, (o.Mode == JobMode.Delete) ? (o.RecycleBin ? "RECYCLE" : "DELETE") : ((o.Mode == JobMode.Sync) ? "SYNC" : "MOVE"), o.Mode == JobMode.Sync || (o.Mode == JobMode.Delete && !o.RecycleBin), o.Mode == JobMode.Delete);
+		}
 		return o.Mode switch
 		{
 			JobMode.Delete => HudDialog.Confirm(this, "CONFIRM DELETE", (o.RecycleBin ? ("Send the following to the Recycle Bin?\n\n" + list) : ("PERMANENTLY DELETE the following?\nThis bypasses the Recycle Bin.\n\n" + list)) + text, !o.RecycleBin, o.RecycleBin ? "RECYCLE" : "DELETE"), 

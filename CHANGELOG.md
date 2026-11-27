@@ -1,5 +1,8 @@
 # Changelog
 
+## 3.17.0
+- Sync, move and delete confirmations now open a scrollable window listing every file that will be copied/moved and every file that will be deleted (deletions in red), instead of a short text box with five examples. Cancel changes nothing.
+
 ## 3.16.0
 - History window: "Re-check newest" compares the newest (searched) job's sources with its destination(s) again and shows identical / how many differ. Size and date comparison, not content; not for move or delete jobs.
 
